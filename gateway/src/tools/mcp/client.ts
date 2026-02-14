@@ -52,15 +52,17 @@ export class MCPManager {
 
   private constructor() {}
 
-  static async create(mcpIds: string[]): Promise<MCPManager> {
-    if (mcpIds.length === 0) {
+  static async create(mcpIds?: string[]): Promise<MCPManager> {
+    const ids = mcpIds ?? [];
+    
+    if (ids.length === 0) {
       return new MCPManager();
     }
 
     const allConfigs = await getMCPConfigs();
     const configMap = new Map(allConfigs.map(c => [c.id, c]));
 
-    const missing = mcpIds.filter(id => !configMap.has(id));
+    const missing = ids.filter(id => !configMap.has(id));
     if (missing.length > 0) {
       throw new Error(`MCP configuration not found for: ${missing.join(', ')}`);
     }
@@ -68,7 +70,7 @@ export class MCPManager {
     const manager = new MCPManager();
     
     await Promise.all(
-      mcpIds.map(id => manager.startServer(configMap.get(id)!))
+      ids.map(id => manager.startServer(configMap.get(id)!))
     );
 
     return manager;
@@ -170,7 +172,10 @@ export class MCPManager {
  * Factory function to initialize an MCPManager with specific servers
  * based on their IDs from the config file.
  */
-export async function createManagerWithMCPs(requestedIds: string | string[]): Promise<MCPManager> {
+export async function createManagerWithMCPs(requestedIds?: string | string[]): Promise<MCPManager> {
+  if (!requestedIds) {
+    return MCPManager.create();
+  }
   const ids = Array.isArray(requestedIds) ? requestedIds : [requestedIds];
   return MCPManager.create(ids);
 }
