@@ -6,7 +6,6 @@ import type {
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions';
 
-
 interface MCPConfig {
   id: string;
   command: string;
@@ -49,21 +48,40 @@ async function getMCPConfigs(path?: string): Promise<MCPConfig[]> {
 }
 
 export class MCPManager {
-  private MCPids: string[] = [];
   private instances = new Map<string, MCPInstance>();
 
-  constructor(mcpids: string[] = []) {
-    this.MCPids = mcpids;
+  private constructor() {}
+
+  static async create(mcpIds: string[]): Promise<MCPManager> {
+    if (mcpIds.length === 0) {
+      return new MCPManager();
+    }
+
+    const allConfigs = await getMCPConfigs();
+    const configMap = new Map(allConfigs.map(c => [c.id, c]));
+
+    const missing = mcpIds.filter(id => !configMap.has(id));
+    if (missing.length > 0) {
+      throw new Error(`MCP configuration not found for: ${missing.join(', ')}`);
+    }
+
+    const manager = new MCPManager();
+    
+    await Promise.all(
+      mcpIds.map(id => manager.startServer(configMap.get(id)!))
+    );
+
+    return manager;
   }
 
-  private async start(id: string, config: MCPConfig): Promise<void> {
-    if (this.instances.has(id)) return;
+  private async startServer(config: MCPConfig): Promise<void> {
+    if (this.instances.has(config.id)) return;
 
     const transport = new StdioClientTransport({
       command: config.command,
       args: config.args,
       env: config.env,
-    })
+    });
 
     const client = new Client(
       { name: "mcp-gateway", version: "1.0.0" },
@@ -77,14 +95,13 @@ export class MCPManager {
     const tools: ChatCompletionTool[] = toolsResult.tools.map((tool) => ({
       type: "function" as const,
       function: {
-        name: `${id}_${tool.name}`,
+        name: `${config.id}_${tool.name}`,
         description: tool.description,
         parameters: tool.inputSchema,
       },
     }));
 
-    this.instances.set(id, { id, client, tools });
-
+    this.instances.set(config.id, { id: config.id, client, tools });
   }
 
   async call(toolName: string, args: any): Promise<string> {
@@ -110,6 +127,7 @@ export class MCPManager {
     }
     throw new Error(`Tool not found: ${toolName}`);
   }
+
   async stop(id: string): Promise<void> {
     const instance = this.instances.get(id);
     if (!instance) return;
@@ -154,24 +172,5 @@ export class MCPManager {
  */
 export async function createManagerWithMCPs(requestedIds: string | string[]): Promise<MCPManager> {
   const ids = Array.isArray(requestedIds) ? requestedIds : [requestedIds];
-  const allConfigs = await getMCPConfigs();
-  const manager = new MCPManager();
-
-  const targetConfigs = allConfigs.filter((config) => ids.includes(config.id));
-
-  if (targetConfigs.length === 0) {
-    console.warn(`[MCP] No matching configurations found for: ${ids.join(", ")}`);
-    return manager;
-  }
-
-  for (const config of targetConfigs) {
-    try {
-      console.log(`[MCP] Starting server: ${config.id}...`);
-      await manager.start(config.id, config);
-    } catch (error) {
-      console.error(`[MCP] Failed to start ${config.id}:`, error);
-    }
-  }
-
-  return manager;
+  return MCPManager.create(ids);
 }
