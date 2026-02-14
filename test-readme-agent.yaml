@@ -1,0 +1,20 @@
+agents:
+  root:
+    model: GLM-model
+    description: Readme file expert
+    instruction: |
+      Generate a high-quality README.md file for a GitHub project based on its codebase and project description library and recent researches.
+    toolsets:
+      - type: filesystem
+      - type: mcp
+        ref: docker:duckduckgo
+      - type: mcp
+        ref: docker:context7
+
+models:
+  GLM-model:
+    provider: openai
+    model:  GLM-4.7
+    base_url: https://api.z.ai/api/coding/paas/v4
+    token_key: ZAI_API_KEY
+
