@@ -2,14 +2,26 @@ import { ChatCompletionStream } from "openai/lib/ChatCompletionStream";
 import { AgentCRUDClient } from "../agent-config-manager";
 import { AgentClient, MessageAccumulator } from "../agent_client";
 import { MCPManager } from "../tools/mcp/client";
-import { AgentRequest, AgentStackFrame, RunAgentInput, Checkpoint } from "../types";
+import { AgentRequest, AgentStackFrame, RunAgentInput, Checkpoint, Agent } from "../types";
 import { AgentState, createContext, ExecutionContext } from "./states";
 import { HilManager } from "../hil/hil-manager";
+import { ChatCompletionMessageToolCall } from "openai/resources/index";
 
 
 class AgentChatLoop {
   private agentshandler: AgentCRUDClient = new AgentCRUDClient();
   private llmclient: AgentClient = new AgentClient();
+
+  private mcpManager?: MCPManager;
+  private hilManager?: HilManager;
+
+  //TODO: ASAP implement the full tool executor 
+  //1. core tools and core tools manager 
+  //2. agent tools executor 
+  //3. coordinate everything in a tool executor core+mcp+agentsastool
+
+  private toolExecutor?: ToolExecutor;
+  private agentDef?: Agent;
 
   async execute(
     input: RunAgentInput,
@@ -18,7 +30,6 @@ class AgentChatLoop {
     const context = createContext(input, frame)
 
     while (context.currentState !== AgentState.COMPLETED && context.currentState !== AgentState.FAILED) {
-
       context.iteration++;
       console.log(`\n🔄 [${input.runId}] State: ${context.currentState} (Iteration: ${context.iteration})`);
       switch (context.currentState) {
@@ -49,6 +60,7 @@ class AgentChatLoop {
           );
 
           if (hasPendingApprovals) {
+            //NOTE: Here in the future I should emit a particular event checkpoint and exit the loop
             return;
           } else {
             this.transitionTo(context, AgentState.EXECUTING_TOOLS);
@@ -101,6 +113,18 @@ class AgentChatLoop {
           return;
       }
     }
+  }
+
+  private async executeTools(tool_calls: ChatCompletionMessageToolCall[]) {
+    //NOTE: Only execute mcp tools for now add agents, core tools to implement yet and Agents as tools.
+
+    for (const call of tool_calls) {
+      //NOTE: for now there is a scope issue with the mcp instance where i need to check also here 
+      //so maybe i should review all instances and functions parameters in general
+
+
+    }
+
   }
 
 }
