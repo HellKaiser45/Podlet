@@ -9,15 +9,15 @@ const hilConfig: HILConfig = {
   auto_unapprove_editing_tools: true,
 }
 
-class HilManager {
+export class HilManager {
   private approvals: PendingApproval[] = [];
 
-  constructor() {}
+  constructor() { }
 
   hillCheck(message: LiteLLMMessage): boolean {
     // Clear previous approvals to allow manager reuse
     this.approvals = [];
-    
+
     //TODO: Find and implement a way to mark tools as HIL required
     if (!message.tool_calls) {
       return false;
@@ -35,9 +35,9 @@ class HilManager {
         else if (hilConfig.auto_unapprove_editing_tools) {
           const EDITING_KEYWORDS = ['write', 'edit', 'send', 'create', 'delete', 'update', 'patch', 'post', 'put', 'remove', 'add'];
           const toolName = call.function.name.toLowerCase();
-          
+
           const isEditingTool = EDITING_KEYWORDS.some(keyword => toolName.includes(keyword));
-          
+
           if (isEditingTool) {
             this.approvals.push({
               tool_call: call,

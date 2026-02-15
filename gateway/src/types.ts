@@ -137,7 +137,7 @@ export interface HILConfig {
 
 export type FrameStatus = "suspended" | "running" | "completed" | "failed";
 
-export interface LiteLLMMessage extends ChatCompletionAssistantMessageParam {
+export interface LiteLLMMessage extends ChatCompletionMessage {
   reasoning_content?: string | null;
   thinking_blocks?: ThinkingAnthropic[] | null;
 }
