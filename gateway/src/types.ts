@@ -2,7 +2,9 @@ import {
   ChatCompletionMessage,
   ChatCompletionTool,
   ChatCompletionChunk,
-  ChatCompletionMessageToolCall
+  ChatCompletionMessageToolCall,
+  ChatCompletionMessageParam,
+  ChatCompletionAssistantMessageParam
 } from 'openai/resources/chat/completions';
 
 
@@ -122,6 +124,12 @@ export interface PendingApproval {
   description?: string;
 }
 
+export interface HILConfig {
+  enabled: boolean;
+  sensitive_tools: string[];
+  auto_unapprove_editing_tools: boolean;
+}
+
 
 //=======================================================================
 //Checkpoint Agent Stack Frame
@@ -129,7 +137,7 @@ export interface PendingApproval {
 
 export type FrameStatus = "suspended" | "running" | "completed" | "failed";
 
-export interface LiteLLMMessage extends ChatCompletionMessage {
+export interface LiteLLMMessage extends ChatCompletionAssistantMessageParam {
   reasoning_content?: string | null;
   thinking_blocks?: ThinkingAnthropic[] | null;
 }
