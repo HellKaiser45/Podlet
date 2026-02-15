@@ -10,19 +10,19 @@ const hilConfig: HILConfig = {
 }
 
 class HilManager {
-  private lastMessage: LiteLLMMessage;
   private approvals: PendingApproval[] = [];
 
-  constructor(message: LiteLLMMessage) {
-    this.lastMessage = message;
-  }
+  constructor() {}
 
-  hillCheck(): boolean {
+  hillCheck(message: LiteLLMMessage): boolean {
+    // Clear previous approvals to allow manager reuse
+    this.approvals = [];
+    
     //TODO: Find and implement a way to mark tools as HIL required
-    if (!this.lastMessage.tool_calls) {
+    if (!message.tool_calls) {
       return false;
     }
-    for (const call of this.lastMessage.tool_calls) {
+    for (const call of message.tool_calls) {
       if (call.type === "function" && call.function) {
         if (hilConfig.sensitive_tools.includes(call.function.name)) {
           this.approvals.push({
@@ -50,5 +50,9 @@ class HilManager {
       }
     }
     return this.approvals.length > 0;
+  }
+
+  getApprovals(): PendingApproval[] {
+    return this.approvals;
   }
 }
