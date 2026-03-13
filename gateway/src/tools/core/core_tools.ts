@@ -1,4 +1,4 @@
-import { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { ChatCompletionTool, ChatCompletionMessageParam, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
 
 /**
  * Result of a shell command execution
@@ -223,12 +223,12 @@ export class CoreToolsManager {
     toolName: string,
     toolCallId: string,
     args: Record<string, any>
-  ): Promise<ChatCompletionMessageParam> {
+  ): Promise<ChatCompletionToolMessageParam> {
     const tool = this.tools.get(toolName);
 
     if (!tool) {
       return {
-        role: "tool" as const,
+        role: "tool",
         tool_call_id: toolCallId,
         content: `Core tool not found: ${toolName}`,
       };
@@ -263,7 +263,7 @@ export class CoreToolsManager {
       }
 
       return {
-        role: "tool" as const,
+        role: "tool",
         tool_call_id: toolCallId,
         content: content.trim(),
       };

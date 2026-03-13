@@ -1,5 +1,4 @@
 import {
-  ChatCompletionMessage,
   ChatCompletionTool,
   ChatCompletionChunk,
   ChatCompletionMessageToolCall,
@@ -114,7 +113,10 @@ export interface ThinkingAnthropic {
 //HIL Approval related stuff
 //======================================================================
 
-export type ApprovalStatus = "approved" | "rejected" | "pending";
+export interface ApprovalStatus {
+  approval: "approved" | "rejected" | "pending";
+  feedback?: string;
+}
 
 
 export interface PendingApproval {
@@ -135,9 +137,13 @@ export interface HILConfig {
 //Checkpoint Agent Stack Frame
 //=======================================================================
 
-export type FrameStatus = "suspended" | "running" | "completed" | "failed";
 
-export interface LiteLLMMessage extends ChatCompletionMessage {
+export type LiteLLMMessage = (ChatCompletionMessageParam | ChatCompletionAssistantMessageParam) & {
+  reasoning_content?: string | null;
+  thinking_blocks?: ThinkingAnthropic[] | null;
+}
+
+export type LiteLLMAssistantMessage = ChatCompletionAssistantMessageParam & {
   reasoning_content?: string | null;
   thinking_blocks?: ThinkingAnthropic[] | null;
 }
@@ -145,20 +151,74 @@ export interface LiteLLMMessage extends ChatCompletionMessage {
 export interface AgentStackFrame {
   frame_id: string;
   parent_frame_id?: string;
+  answering_tool_call_id?: string;
   agent_id: string;
-  depth: number;
-
   history: LiteLLMMessage[];
   pending_approvals: PendingApproval[];
-
-  status: FrameStatus;
+  status: "running" | "suspended" | "completed";
 }
 
-/** The full Agent State stack to resume properly */
-export interface Checkpoint {
-  checkpoint_id: string;
-  run_id: string;
-  /** frame_id -> AgentStackFrame */
-  frames: Record<string, AgentStackFrame>;
-  current_frame_id: string;
+export function initFrame(agent: string): AgentStackFrame {
+  return {
+    frame_id: crypto.randomUUID(),
+    agent_id: agent,
+    history: [],
+    pending_approvals: [],
+    status: "running",
+  }
+}
+
+// ===========================
+// CONTEXT
+// ==========================
+/**NOTE: This is the full agentState : the context of the execution 
+ * It is for one and only one agent loop not the full context though
+ *The full context is managed by a persistant checkpoint (loop vs orchestrator)
+ * */
+
+export enum AgentState {
+  INITIALIZING = 'INITIALIZING',
+  CALLING_LLM = 'CALLING_LLM',
+  PROCESSING_RESPONSE = 'PROCESSING_RESPONSE',
+  EXECUTING_TOOLS = 'EXECUTING_TOOLS',
+  AWAITING_APPROVAL = 'AWAITING_APPROVAL',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+export interface ExecutionContext {
+  input: RunAgentInput;
+  frame: AgentStackFrame;
+  currentState: AgentState;
+  iteration: number;
+  maxIterations: number;
+
+  error?: string;
+}
+
+export function createContext(
+  input: RunAgentInput,
+  frame: AgentStackFrame,
+): ExecutionContext {
+  return {
+    input,
+    frame,
+    currentState: AgentState.INITIALIZING,
+    iteration: 0,
+    maxIterations: 10,
+  }
+}
+
+// ===========================
+// CUSTOM ERRORS
+// ==========================
+
+export class AgentToolSuspended extends Error {
+  constructor(
+    public readonly childFrameId: string,
+    public readonly agentId: string,
+  ) {
+    super(`Child agent ${agentId} suspended (frame: ${childFrameId})`);
+    this.name = "AgentToolSuspended";
+  }
 }

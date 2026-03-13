@@ -1,19 +1,15 @@
-import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
+// db/schemas.ts
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import type { LiteLLMMessage, PendingApproval } from '../types'; // Import your types
 
-export const agents = sqliteTable('agents', {
-  name: text('name').notNull().unique().primaryKey(),
-  description: text('description').notNull(),
-  systemPrompt: text('system_prompt').notNull(),
-  model: text('model').notNull(),
-  provider: text('provider').notNull(),
-  tools: text('tools', { mode: 'json' }).$type<ChatCompletionTool[]>(),
+export const frames = sqliteTable('frames', {
+  frameId: text('frame_id').notNull().primaryKey(),
+  parentFrameId: text('parent_frame_id'), // Nullable for root frames
+  agentId: text('agent_id').notNull(),
+  runId: text('run_id').notNull(), // Group frames by execution
+  status: text('status').notNull(), // "running" | "suspended" | "completed"
+  history: text('history', { mode: 'json' }).$type<LiteLLMMessage[]>().notNull(),
+  pendingApprovals: text('pending_approvals', { mode: 'json' }).$type<PendingApproval[]>().notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
-});
-
-export const conversations = sqliteTable('conversations', {
-  agentName: text('agent_name').notNull().references(() => agents.name),
-  conversationId: text('conversation_id').notNull().unique().primaryKey(),
-  history: text('history', { mode: 'json' }).$type<ChatCompletionMessageParam[]>(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

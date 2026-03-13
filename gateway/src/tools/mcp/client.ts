@@ -4,6 +4,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ChatCompletionTool,
   ChatCompletionMessageParam,
+  ChatCompletionToolMessageParam,
 } from 'openai/resources/chat/completions';
 
 interface MCPConfig {
@@ -50,11 +51,11 @@ async function getMCPConfigs(path?: string): Promise<MCPConfig[]> {
 export class MCPManager {
   private instances = new Map<string, MCPInstance>();
 
-  private constructor() {}
+  private constructor() { }
 
   static async create(mcpIds?: string[]): Promise<MCPManager> {
     const ids = mcpIds ?? [];
-    
+
     if (ids.length === 0) {
       return new MCPManager();
     }
@@ -68,7 +69,7 @@ export class MCPManager {
     }
 
     const manager = new MCPManager();
-    
+
     await Promise.all(
       ids.map(id => manager.startServer(configMap.get(id)!))
     );
@@ -106,7 +107,7 @@ export class MCPManager {
     this.instances.set(config.id, { id: config.id, client, tools });
   }
 
-  async call(toolName: string, args: any): Promise<string> {
+  async call(toolName: string, toolCallId: string, args: Record<string, any>) {
     for (const instance of this.instances.values()) {
       const tool = instance.tools.find((t) =>
         'function' in t && t.function.name === toolName
@@ -122,9 +123,15 @@ export class MCPManager {
           CallToolResultSchema
         );
 
-        return result.content
-          .map((block: any) => block.type === "text" ? block.text : JSON.stringify(block))
-          .join("\n");
+        const tool_result: ChatCompletionToolMessageParam = {
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: result.content
+            .map((block: any) => block.type === "text" ? block.text : JSON.stringify(block))
+            .join("\n")
+        }
+
+        return tool_result
       }
     }
     throw new Error(`Tool not found: ${toolName}`);

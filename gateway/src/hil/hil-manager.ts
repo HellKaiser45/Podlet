@@ -1,4 +1,4 @@
-import { LiteLLMMessage, HILConfig, PendingApproval } from "../types";
+import { LiteLLMMessage, HILConfig, PendingApproval, LiteLLMAssistantMessage } from "../types";
 
 const hilConfig: HILConfig = {
   enabled: true,
@@ -14,7 +14,10 @@ export class HilManager {
 
   constructor() { }
 
-  hillCheck(message: LiteLLMMessage): boolean {
+  /** function that checks if a tool call contains a tool requiring an approval from the user 
+    * two ways of doing it are by storing tools in a registry that mark them as sensitive
+    * or by checking the names of the tools if they do some writing action by keywords check */
+  hilCheck(message: LiteLLMMessage): boolean {
     // Clear previous approvals to allow manager reuse
     this.approvals = [];
 
@@ -28,7 +31,9 @@ export class HilManager {
           this.approvals.push({
             tool_call: call,
             requires_approval: true,
-            approval_status: "pending",
+            approval_status: {
+              approval: "pending",
+            },
             description: `calling ${call.function.name} with ${call.function.arguments}`
           })
         }
@@ -42,7 +47,9 @@ export class HilManager {
             this.approvals.push({
               tool_call: call,
               requires_approval: true,
-              approval_status: "pending",
+              approval_status: {
+                approval: "pending",
+              },
               description: `calling ${call.function.name} with ${call.function.arguments}`
             });
           }
