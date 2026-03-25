@@ -1,0 +1,17 @@
+{
+  "server": {
+    "port": 3000,
+    "host": "127.0.0.1",
+    "cors_enabled": true
+  },
+  "database": {
+    "path": "podelet.db"
+  },
+  "logging": {
+    "level": "info"
+  },
+  "features": {
+    "hil_enabled": true,
+    "max_concurrent_agents": 5
+  }
+}

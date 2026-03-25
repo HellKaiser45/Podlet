@@ -1,30 +1,35 @@
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/index'
-import { AgentCRUDClient } from './../agent-config-manager'
 import { AgentChatLoop } from './../agent-loop/chat-loop'
-import { AgentStackFrame, AgentToolSuspended, createContext, LiteLLMMessage, RunAgentInput } from '../types'
+import { AgentStackFrame, AgentToolSuspended, createContext, RunAgentInput } from '../types'
+import AppContainer from '../runtime';
 
 
 export class AgentToolManager {
-  constructor(
-    private agentCrud: AgentCRUDClient,
-  ) { }
+  private container: AppContainer
+  constructor(container: AppContainer) {
+    this.container = container
+  }
 
-  async getAgentAsToolDefinition(agentId: string): Promise<ChatCompletionTool> {
-    const agent = await this.agentCrud.loadAgent(agentId)
-    return {
-      type: "function",
-      function: {
-        name: `agent_${agentId}`,
-        description: agent.agentDescription || `delegate task to ${agentId}`,
-        parameters: {
-          type: "object",
-          properties: {
-            task: { type: "string", description: "Task to delegate to the agent explained clearly in natural language and given with necessary piecies of context." }
-          },
-          required: ["task"]
+  async getAgentAsToolDefinition(agentIds: string[]): Promise<ChatCompletionTool[]> {
+    const tools: ChatCompletionTool[] = [];
+    for (const agentId of agentIds) {
+      const agent = this.container.agentManager.agents[agentId]
+      tools.push({
+        type: "function",
+        function: {
+          name: `agent_${agentId}`,
+          description: agent.agentDescription || `delegate task to ${agentId}`,
+          parameters: {
+            type: "object",
+            properties: {
+              task: { type: "string", description: "Task to delegate to the agent explained clearly in natural language and given with necessary piecies of context." }
+            },
+            required: ["task"]
+          }
         }
-      }
+      })
     }
+    return tools
   }
 
   isAgentTool(toolname: string): boolean {
@@ -62,7 +67,7 @@ export class AgentToolManager {
 
     const agentContext = createContext(runagent, childFrame)
 
-    const loop = await AgentChatLoop.create(agentContext)
+    const loop = new AgentChatLoop(agentContext, agentId)
     const result = await loop.execute()
 
     if (result.status === "completed") {
@@ -73,10 +78,13 @@ export class AgentToolManager {
       }
     }
 
-    else {
+    else if (result.status === "suspended") {
       throw new AgentToolSuspended(childFrame.frame_id, childFrame.agent_id)
     }
 
+    else {
+      throw new Error(`Unexpected error in agent tool execution: ${result.status}`)
+    }
   }
-
 }
+

@@ -1,15 +1,48 @@
 import type { ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageToolCall } from 'openai/resources/chat/completions';
-import type { AgentRequest, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta } from './types';
+import type { AgentRequest, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
+import AppContainer from './runtime';
+import { CoreToolsManager } from './tools/core/core_tools';
+
 
 export class AgentClient {
-  private readonly baseUrl: string;
+  private readonly streamEndpoint = '/chat/stream'
+  private readonly appContainer: AppContainer
 
-  constructor(baseUrl: string = 'http://localhost:8000') {
-    this.baseUrl = baseUrl.replace(/\/$/, '');
+  constructor(appcontainer: AppContainer) {
+    this.appContainer = appcontainer;
   }
 
-  async *chatStream(request: AgentRequest): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
-    const response = await fetch(`${this.baseUrl}/chat/stream`, {
+  private async buildRequest(agentId: string, history: LiteLLMMessage[]): Promise<AgentRequest> {
+    const agent = this.appContainer.agentManager.agents[agentId];
+    const model = this.appContainer.modelManager.models[agent.model];
+
+    const coreTools = new CoreToolsManager
+
+    const tools = [
+      ...this.appContainer.mcpManager.getTools(agent.mcps || []),
+      ...coreTools.getToolDefinitions(),
+      ...await this.appContainer.agentToolsManager.getAgentAsToolDefinition(agent.subAgents || []),
+    ];
+
+    const systemPrompt = await this.appContainer.skillManager.injectSkills(agent.skills || [], await this.appContainer.agentManager.getAgentprompt(agentId));
+
+    return {
+      provider: model.provider,
+      model: model.model,
+      system_prompt: systemPrompt,
+      history: history,
+      tools: tools,
+      response_format: agent.response_format,
+    }
+
+  }
+
+  async *chatStream(agentId: string, history: LiteLLMMessage[]): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
+
+    const request = await this.buildRequest(agentId, history)
+    const baseUrl = this.appContainer.initConfig.llmApiUrl.replace(/\/$/, '');
+    const url = `${baseUrl}${this.streamEndpoint}`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -40,10 +73,8 @@ export class AgentClient {
           yield chunk;
         }
       }
-
     }
   }
-
 }
 
 export class MessageAccumulator {
@@ -52,7 +83,7 @@ export class MessageAccumulator {
   private thinkingBlocks: ThinkingAnthropic[] = [];
   private toolCalls: Record<number, Partial<ChatCompletionChunk.Choice.Delta.ToolCall>> = {};
 
-  async construcMessage(delta: LiteLLMDelta) {
+  constructMessage(delta: LiteLLMDelta) {
 
     if (delta.reasoning_content) this.reasoningContent += delta.reasoning_content;
     if (delta.content) this.content += delta.content;
@@ -103,32 +134,3 @@ export class MessageAccumulator {
     };
   }
 }
-
-
-async function runTest() {
-  const client = new AgentClient();
-  const request = {
-    provider: "moonshot",
-    model: "kimi-k2.5",
-    system_prompt: "You are a helpful assistant. Use tools if needed.",
-    history: [{ role: "user", content: "Tell me a joke and then check the weather in Paris." }],
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "get_weather",
-          description: "Get weather for a city",
-          parameters: { type: "object", properties: { city: { type: "string" } } }
-        }
-      }
-    ]
-  };
-  console.log("🚀 Starting Verbose Stream Test...\n");
-  const accu = new MessageAccumulator();
-  for await (const choice of client.chatStream(request as any)) {
-    accu.construcMessage(choice.choices[0].delta);
-  }
-  console.log(accu.buildMessage());
-}
-
-runTest();

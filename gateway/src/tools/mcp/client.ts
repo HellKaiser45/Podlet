@@ -1,89 +1,35 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type {
   ChatCompletionTool,
-  ChatCompletionMessageParam,
-  ChatCompletionToolMessageParam,
 } from 'openai/resources/chat/completions';
+import { LiteLLMMessage, MCPConfig, MCPInstance } from "../../types";
+import { join } from "path";
 
-interface MCPConfig {
-  id: string;
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
 
-interface MCPInstance {
-  id: string;
-  client: Client;
-  tools: ChatCompletionTool[]
-}
+export default class MCPManager {
+  private filepath: string;
+  mcps: Record<string, MCPConfig> = {};
+  runningInstances: Record<string, MCPInstance> = {};
 
-async function getMCPConfigs(path?: string): Promise<MCPConfig[]> {
-  const home = Bun.env.HOME || Bun.env.USERPROFILE || ".";
-  //WARN: Here the path is hardcoded and maybe it will change in the future
-  const resolvedPath = path ?? `${home}/.podlet/mcp.json`;
-
-  const file = Bun.file(resolvedPath);
-
-  if (!(await file.exists())) {
-    console.error(`Config file not found at: ${resolvedPath}`);
-    return [];
+  constructor(path: string) {
+    this.filepath = join(path, 'mcp.json');
   }
 
-  try {
-    const data = await file.json();
-    const servers = data.mcpServers;
-
-    if (!servers || typeof servers !== 'object') return [];
-
-    return Object.entries(servers).map(([id, config]: [string, any]) => ({
-      id,
-      ...config
-    }));
-  } catch (e) {
-    console.error("Failed to parse MCP config JSON:", e);
-    return [];
-  }
-}
-
-export class MCPManager {
-  private instances = new Map<string, MCPInstance>();
-
-  private constructor() { }
-
-  static async create(mcpIds?: string[]): Promise<MCPManager> {
-    const ids = mcpIds ?? [];
-
-    if (ids.length === 0) {
-      return new MCPManager();
-    }
-
-    const allConfigs = await getMCPConfigs();
-    const configMap = new Map(allConfigs.map(c => [c.id, c]));
-
-    const missing = ids.filter(id => !configMap.has(id));
-    if (missing.length > 0) {
-      throw new Error(`MCP configuration not found for: ${missing.join(', ')}`);
-    }
-
-    const manager = new MCPManager();
-
-    await Promise.all(
-      ids.map(id => manager.startServer(configMap.get(id)!))
-    );
-
-    return manager;
+  async init() {
+    const { default: allmymcps } = await import(this.filepath)
+    this.mcps = allmymcps.mcpServers
   }
 
-  private async startServer(config: MCPConfig): Promise<void> {
-    if (this.instances.has(config.id)) return;
+  async startserver(mcpId: string) {
+    const mcp = this.mcps[mcpId]
+    if (this.runningInstances[mcpId]) return
 
     const transport = new StdioClientTransport({
-      command: config.command,
-      args: config.args,
-      env: config.env,
+      command: mcp.command,
+      args: mcp.args,
+      env: mcp.env,
     });
 
     const client = new Client(
@@ -96,93 +42,64 @@ export class MCPManager {
     const toolsResult = await client.listTools()
 
     const tools: ChatCompletionTool[] = toolsResult.tools.map((tool) => ({
-      type: "function" as const,
+      type: "function",
       function: {
-        name: `${config.id}_${tool.name}`,
+        name: `${mcpId}_${tool.name}`,
         description: tool.description,
         parameters: tool.inputSchema,
       },
     }));
 
-    this.instances.set(config.id, { id: config.id, client, tools });
+    this.runningInstances[mcpId] = { client, tools }
   }
 
-  async call(toolName: string, toolCallId: string, args: Record<string, any>) {
-    for (const instance of this.instances.values()) {
-      const tool = instance.tools.find((t) =>
-        'function' in t && t.function.name === toolName
-      );
-      if (tool && 'function' in tool) {
-        const originalName = toolName.replace(`${instance.id}_`, "");
-
-        const result = await instance.client.request(
-          {
-            method: "tools/call",
-            params: { name: originalName, arguments: args },
-          },
-          CallToolResultSchema
-        );
-
-        const tool_result: ChatCompletionToolMessageParam = {
-          role: "tool",
-          tool_call_id: toolCallId,
-          content: result.content
-            .map((block: any) => block.type === "text" ? block.text : JSON.stringify(block))
-            .join("\n")
-        }
-
-        return tool_result
-      }
+  async create(mcpsIds: string[]) {
+    const servertostart = []
+    for (const mcpId of mcpsIds) {
+      servertostart.push(this.startserver(mcpId))
     }
-    throw new Error(`Tool not found: ${toolName}`);
+    Promise.all(servertostart)
   }
 
-  async stop(id: string): Promise<void> {
-    const instance = this.instances.get(id);
-    if (!instance) return;
-
-    await instance.client.close();
-    this.instances.delete(id);
-  }
-
-  async stopAll(): Promise<void> {
-    await Promise.all(
-      Array.from(this.instances.keys()).map((id) => this.stop(id))
-    );
-  }
-
-  getTools(): ChatCompletionTool[] {
-    return Array.from(this.instances.values()).flatMap((i) => i.tools);
-  }
-
-  isRunning(id: string): boolean {
-    return this.instances.has(id);
-  }
-
-  getRunningIds(): string[] {
-    return Array.from(this.instances.keys());
-  }
-
-  buildToolResultMessage(
-    toolCallId: string,
-    content: string
-  ): ChatCompletionMessageParam {
+  async call(toolname: string, toolCallId: string, args: Record<string, unknown>): Promise<LiteLLMMessage> {
+    const [first, ...rest] = toolname.split("_")
+    const second = rest.join("_")
+    const result = await this.runningInstances[first].client.callTool({ name: second, arguments: args })
     return {
       role: "tool",
       tool_call_id: toolCallId,
-      content: typeof content === "string" ? content : JSON.stringify(content),
-    };
+      content: JSON.stringify(result.content)
+    }
   }
-}
 
-/**
- * Factory function to initialize an MCPManager with specific servers
- * based on their IDs from the config file.
- */
-export async function createManagerWithMCPs(requestedIds?: string | string[]): Promise<MCPManager> {
-  if (!requestedIds) {
-    return MCPManager.create();
+  async stop(mcpid: string) {
+    if (!this.runningInstances[mcpid]) return;
+
+    await this.runningInstances[mcpid].client.close();
+    delete this.runningInstances[mcpid];
   }
-  const ids = Array.isArray(requestedIds) ? requestedIds : [requestedIds];
-  return MCPManager.create(ids);
+
+  async stopAll() {
+    await Promise.all(
+      Object.values(this.runningInstances).map(i => i.client.close())
+    );
+    this.runningInstances = {};
+  }
+
+  getTools(mcpids: string[]): ChatCompletionTool[] {
+    const tools: ChatCompletionTool[] = []
+    for (const mcpid of mcpids) {
+      tools.push(...this.runningInstances[mcpid].tools)
+    }
+    return tools
+  }
+
+  isRunning(toolName: string): boolean {
+    for (const instance of Object.values(this.runningInstances)) {
+      if (instance.tools.some(t => t.type === 'function' && t.function.name === toolName)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }

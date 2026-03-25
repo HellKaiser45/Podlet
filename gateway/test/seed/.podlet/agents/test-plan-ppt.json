@@ -1,0 +1,9 @@
+{
+  "agentId": "ppt-agent",
+  "agentDescription": "A specialist in slides design",
+  "system_prompt": "ppt_prompt.md",
+  "model":"working",
+  "mcps": [],
+  "skills": ["pptx"],
+  "subAgents":[]
+}

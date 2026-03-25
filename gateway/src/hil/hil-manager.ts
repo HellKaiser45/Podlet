@@ -1,65 +1,65 @@
-import { LiteLLMMessage, HILConfig, PendingApproval, LiteLLMAssistantMessage } from "../types";
+import { HILConfig, PendingApproval } from "../types";
+import { ChatCompletionMessageToolCall } from "openai/resources/index";
 
 const hilConfig: HILConfig = {
-  enabled: true,
-  sensitive_tools: [
-    'execute_command'
-  ],
-  //NOTE: this means i need to parse the tools names to check things like send , write, edit, ... in the name 
+  enabled: false,
+  sensitive_tools: ['execute_shell'],
   auto_unapprove_editing_tools: true,
-}
+};
 
 export class HilManager {
-  private approvals: PendingApproval[] = [];
+  private config: HILConfig;
 
-  constructor() { }
-
-  /** function that checks if a tool call contains a tool requiring an approval from the user 
-    * two ways of doing it are by storing tools in a registry that mark them as sensitive
-    * or by checking the names of the tools if they do some writing action by keywords check */
-  hilCheck(message: LiteLLMMessage): boolean {
-    // Clear previous approvals to allow manager reuse
-    this.approvals = [];
-
-    //TODO: Find and implement a way to mark tools as HIL required
-    if (!message.tool_calls) {
-      return false;
-    }
-    for (const call of message.tool_calls) {
-      if (call.type === "function" && call.function) {
-        if (hilConfig.sensitive_tools.includes(call.function.name)) {
-          this.approvals.push({
-            tool_call: call,
-            requires_approval: true,
-            approval_status: {
-              approval: "pending",
-            },
-            description: `calling ${call.function.name} with ${call.function.arguments}`
-          })
-        }
-        else if (hilConfig.auto_unapprove_editing_tools) {
-          const EDITING_KEYWORDS = ['write', 'edit', 'send', 'create', 'delete', 'update', 'patch', 'post', 'put', 'remove', 'add'];
-          const toolName = call.function.name.toLowerCase();
-
-          const isEditingTool = EDITING_KEYWORDS.some(keyword => toolName.includes(keyword));
-
-          if (isEditingTool) {
-            this.approvals.push({
-              tool_call: call,
-              requires_approval: true,
-              approval_status: {
-                approval: "pending",
-              },
-              description: `calling ${call.function.name} with ${call.function.arguments}`
-            });
-          }
-        }
-      }
-    }
-    return this.approvals.length > 0;
+  constructor(config: HILConfig = hilConfig) {
+    this.config = config;
   }
 
-  getApprovals(): PendingApproval[] {
-    return this.approvals;
+  /**
+   * Check if tool calls require approval
+   * @returns Array of pending approvals (empty if none needed)
+   */
+  hilCheck(toolCalls: ChatCompletionMessageToolCall[]): PendingApproval[] {
+    if (!this.config.enabled) return [];
+
+    const approvals: PendingApproval[] = [];
+
+    for (const call of toolCalls) {
+      if (call.type !== "function" || !call.function) continue;
+
+      if (this.requiresApproval(call.function.name)) {
+        approvals.push({
+          tool_call: call,
+          requires_approval: true,
+          approval_status: { approval: "pending" },
+          description: `Calling ${call.function.name} with ${call.function.arguments}`
+        });
+      }
+    }
+
+    return approvals;
+  }
+
+  private requiresApproval(toolName: string): boolean {
+    // Check explicit sensitive tools
+    if (this.config.sensitive_tools.includes(toolName)) {
+      return true;
+    }
+
+    // Check editing keywords
+    if (this.config.auto_unapprove_editing_tools) {
+      return this.isEditingTool(toolName);
+    }
+
+    return false;
+  }
+
+  private isEditingTool(toolName: string): boolean {
+    const EDITING_KEYWORDS = [
+      'write', 'edit', 'send', 'create', 'delete',
+      'update', 'patch', 'post', 'put', 'remove', 'add'
+    ];
+
+    const normalized = toolName.toLowerCase();
+    return EDITING_KEYWORDS.some(keyword => normalized.includes(keyword));
   }
 }

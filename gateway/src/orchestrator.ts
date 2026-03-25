@@ -1,7 +1,7 @@
 
 import { AgentChatLoop } from "./agent-loop/chat-loop";
+import AppContainer from "./runtime";
 import { AgentStackFrame, RunAgentInput, initFrame, UserDecision, ExecutionContext, AgentState, LiteLLMMessage } from "./types";
-import { frameCRUD } from "./db/db_client";
 
 
 function detectnewleaf(input: AgentStackFrame): boolean {
@@ -15,29 +15,37 @@ function detectnewleaf(input: AgentStackFrame): boolean {
     return false
   }
   else {
-    throw new Error("unexpected state")
+    throw new Error(`Unexpected state: ${input.status}`)
   }
 }
 
 export class AgentOrchestrator {
+  private appContainer: AppContainer
+  constructor(container: AppContainer) {
+    this.appContainer = container
+  }
   /** Main entry point to sort and route depending if we are resuming or not */
   async executeAgent(input: RunAgentInput) {
 
-    const existing_checkpoint = await frameCRUD.getByRunId(input.runId)
+    const existing_checkpoint = await this.appContainer.frameCRUD.getByRunId(input.runId)
 
-    if (existing_checkpoint) {
+    console.log('existing_checkpoint', existing_checkpoint)
+
+    if (Object.keys(existing_checkpoint).length !== 0) {
       console.log(`📂 Found existing checkpoint for runId: ${input.runId}`);
       const output_frame = await this.resume(input)
+      return output_frame
     } else {
       console.log(`🆕 Starting new execution for runId: ${input.runId}`);
       const output_frame = await this.startNewExecution(input)
+      return output_frame
     }
   }
 
   /** Start a new execution for the agent */
   private async startNewExecution(input: RunAgentInput) {
-    const frame = initFrame(input.agentId)
-
+    if (!input.message) { throw new Error('We are trying to start a new execution but a message is missing from the input') }
+    const frame = initFrame(input.agentId, input.message)
     const context: ExecutionContext = {
       input: input,
       frame: frame,
@@ -45,69 +53,70 @@ export class AgentOrchestrator {
       iteration: 0,
       maxIterations: 10,
     }
-
-    const loop = await AgentChatLoop.create(context)
-
+    const loop = new AgentChatLoop(context, this.appContainer, input.agentId)
     return await loop.execute()
   }
 
-  private async resume(
-    input: RunAgentInput,
-  ) {
-
+  private async resume(input: RunAgentInput): Promise<AgentStackFrame> {
     if (!input.decision) {
-      throw new Error('we are trying to resume but without any decision, it shouldnt happen')
+      throw new Error('we are trying to resume but without any decision, it shouldnt happen');
     }
 
-    const getPausedFrames = await frameCRUD.getByStatus(input.runId, "suspended")
+    const getPausedFrames = await this.appContainer.frameCRUD.getByStatus(input.runId, "suspended");
     for (const frame of getPausedFrames) {
-      this.applyDecisionToFrame(frame, input.decision)
-      await frameCRUD.update(frame.frame_id, {
+      this.applyDecisionToFrame(frame, input.decision);
+      await this.appContainer.frameCRUD.update(frame.frame_id, {
         pending_approvals: frame.pending_approvals
       });
     }
 
-    await this.restartLeaves(input)
+    return await this.restartLeaves(input);
   }
 
-  async restartLeaves(input: RunAgentInput) {
-    const frameexec: Promise<AgentStackFrame>[] = []
-    for (const leaf of await frameCRUD.getLeafFrames(input.runId)) {
+  async restartLeaves(input: RunAgentInput): Promise<AgentStackFrame> {
+    const frameexec: Promise<AgentStackFrame>[] = [];
+    const leaves = await this.appContainer.frameCRUD.getLeafFrames(input.runId);
 
+    for (const leaf of leaves) {
       const context: ExecutionContext = {
         input: input,
         frame: leaf,
-        currentState: AgentState.EXECUTING_TOOLS,
+        currentState: AgentState.INITIALIZING,
         iteration: 0,
         maxIterations: 10,
-      }
-      const loop = await AgentChatLoop.create(context)
-      frameexec.push(loop.execute())
+      };
+      const loop = new AgentChatLoop(context, this.appContainer, leaf.agent_id);
+      frameexec.push(loop.execute());
+      await this.appContainer.frameCRUD.delete(leaf.frame_id);
     }
 
-    const output_leaves = await Promise.all(frameexec)
+    const output_leaves = await Promise.all(frameexec);
 
     for (const ol of output_leaves) {
       if (detectnewleaf(ol) || !ol.parent_frame_id) {
-        return
+        return ol; // Return suspended or root frame
       }
-      const parent_frame = await frameCRUD.getById(ol.parent_frame_id);
-      if (!ol.answering_tool_call_id) { throw new Error('Since it has a perent frame it should have also a answering tool call id') }
+
+      const parent_frame = await this.appContainer.frameCRUD.getById(ol.parent_frame_id);
+      if (!ol.answering_tool_call_id) {
+        throw new Error('Since it has a parent frame it should have also a answering tool call id');
+      }
+
       const tool_msg: LiteLLMMessage = {
         role: "tool",
         tool_call_id: ol.answering_tool_call_id,
         content: JSON.stringify(ol.history[ol.history.length - 1].content),
-      }
-      if (!parent_frame) { throw new Error('parent frame not found in db') }
-      await frameCRUD.update(parent_frame?.frame_id, {
-        history: [...parent_frame?.history, tool_msg]
-      })
-      await frameCRUD.delete(ol.frame_id)
+      };
 
+      if (!parent_frame) throw new Error('parent frame not found in db');
+
+      await this.appContainer.frameCRUD.update(parent_frame.frame_id, {
+        history: [...parent_frame.history, tool_msg]
+      });
     }
-    await this.restartLeaves(input)
-  }
 
+    return await this.restartLeaves(input);
+  }
   /** Apply decision to the frame */
   private applyDecisionToFrame(
     frame: AgentStackFrame,
@@ -116,7 +125,6 @@ export class AgentOrchestrator {
     /** No reference to the parameters of the class but we mutate directly the object
       * provided in parameter 
     */
-
     for (const approval of frame.pending_approvals) {
       const decision = decisions[approval.tool_call.id]
       if (decision) {

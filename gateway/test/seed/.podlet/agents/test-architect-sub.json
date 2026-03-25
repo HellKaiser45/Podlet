@@ -1,0 +1,9 @@
+{
+  "agentId": "architect",
+  "agentDescription": "A specialist in code architecture and design of systems",
+  "model": "working",
+  "system_prompt": "code_architect.md",
+  "mcps": ["context7","ddg-search"],
+  "skills": [],
+  "subAgents": ["ppt-agent"]
+}

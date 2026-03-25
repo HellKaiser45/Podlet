@@ -1,0 +1,10 @@
+{
+  "working": {
+    "provider": "moonshot",
+    "model": "kimi-k2.5"
+  },
+  "nokey": {
+    "provider": "openai",
+    "model": "gpt-5.4-mini"
+  }
+}

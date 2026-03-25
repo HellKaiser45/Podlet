@@ -1,0 +1,1 @@
+ALTER TABLE `frames` ADD `answering_tool_call_id` text;

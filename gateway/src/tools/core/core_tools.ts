@@ -1,4 +1,4 @@
-import { ChatCompletionTool, ChatCompletionMessageParam, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
+import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
 
 /**
  * Result of a shell command execution
@@ -75,8 +75,6 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
 
     try {
       console.log(`🐚 Executing: ${command}`);
-      console.log(`   CWD: ${working_directory}`);
-      console.log(`   Timeout: ${timeout}s`);
 
       const proc = Bun.spawn(['bash', '-c', command], {
         cwd: working_directory,
@@ -177,7 +175,6 @@ export class CoreToolsManager {
     const shellTool = new ShellTool();
     this.tools.set(shellTool.name, shellTool);
 
-    console.log(`✅ Core tools initialized: ${Array.from(this.tools.keys()).join(', ')}`);
   }
 
   /**
@@ -286,5 +283,3 @@ export class CoreToolsManager {
   }
 }
 
-// Export singleton instance for convenience
-export const coreTools = new CoreToolsManager();

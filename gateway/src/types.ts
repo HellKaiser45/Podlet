@@ -5,30 +5,60 @@ import {
   ChatCompletionMessageParam,
   ChatCompletionAssistantMessageParam
 } from 'openai/resources/chat/completions';
-
-
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { randomUUIDv7 } from "bun";
 //=======================================================================================
-// API Input types
+// Config related types
 //=======================================================================================
 
-//TODO: Store the agents in a file : JSON OR YAML, and Add a file for crud operations
-/** Agent definition for the frontend to backend */
+/** Skill config */
+
+/** Skill frontmatter */
+export interface SkillFrontmatter {
+  name: string;
+  description: string;
+}
+
+export interface Skillneeded extends SkillFrontmatter {
+  location: string;
+}
+
+/** MCP config */
+export interface MCPConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export interface MCPInstance {
+  client: Client;
+  tools: ChatCompletionTool[]
+}
+
+/** ~/.podelet/models.json */
+export interface modelConfig {
+  provider: string;
+  model: string;
+  base_url?: string;
+  api_key?: string;
+  api_key_env?: string;
+  temperature?: number;
+  max_tokens?: number;
+}
+
+/** ~/.podelet/agents/*.json */
 export interface Agent {
   /** Agent name transmitted by the instance */
   agentId: string;
   /** Agent description as defined by the user */
   agentDescription: string;
-  /** LLM provider */
-  provider: string;
   /** Model name - given by the provider not a custom name */
   model: string;
   /** System prompt of the agent */
-  // TODO: implement a file system and folder to store system prompts
   system_prompt: string;
   /* List of Mcps names available by to the agent (and they must be in the config file for mcps)*/
   mcps?: string[];
   /** List of skills names available to the agent (and they must be in the folder for skills)*/
-  //TODO: implement a folder for skills and a class to read the skills and inject them
   skills?: string[];
   /** List agent names to pass to the agent as tools */
   subAgents?: string[];
@@ -36,15 +66,18 @@ export interface Agent {
   response_format?: Record<string, any>;
 }
 
-//TODO: 2 possibilities : like the skills or like claude code does with in project .files
-//I prefer the first one though it is less flexible but easier
-//to manage for me and the user as well I believe. I am not sure if it should be part
-//of the agent definition or not. 
-interface Context {
-  description: string;
-  /** The actual content of the context */
-  value: string;
+/** ~/.podelet/mcps.json (Standard MCP format) */
+export interface MCPServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
 }
+
+
+//=======================================================================================
+// API Input types
+//=======================================================================================
+
 
 /** HIL definition for the frontend to backend */
 export interface UserDecision {
@@ -158,11 +191,15 @@ export interface AgentStackFrame {
   status: "running" | "suspended" | "completed";
 }
 
-export function initFrame(agent: string): AgentStackFrame {
+export function initFrame(agent: string, message: string): AgentStackFrame {
+  const userMessage = {
+    role: "user",
+    content: message
+  } as LiteLLMMessage
   return {
-    frame_id: crypto.randomUUID(),
+    frame_id: randomUUIDv7(),
     agent_id: agent,
-    history: [],
+    history: [userMessage],
     pending_approvals: [],
     status: "running",
   }
@@ -221,4 +258,16 @@ export class AgentToolSuspended extends Error {
     super(`Child agent ${agentId} suspended (frame: ${childFrameId})`);
     this.name = "AgentToolSuspended";
   }
+}
+
+//==============================
+// CONFIG
+// =============================
+
+export interface AppConfig {
+  podeletDir: string;
+  dbName: string;
+  llmApiUrl: string;
+  appPort: number;
+  enableWatchers: boolean;
 }
