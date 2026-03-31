@@ -5,23 +5,37 @@ import AppContainer from '../src/runtime';
 
 const TEST_ROOT = join(import.meta.dir, 'seed', '.podlet')
 
-const testConfig: AppConfig = {
+export const testConfig: AppConfig = {
   podeletDir: TEST_ROOT,
   dbName: ':memory:',
   llmApiUrl: 'http://localhost:8000',
   appPort: 3000,
   enableWatchers: false,
+  safemode: false,
 }
 
-const container = new AppContainer(testConfig)
-await container.init()
+export const testConfigHill: AppConfig = {
+  podeletDir: TEST_ROOT,
+  dbName: ':memory:',
+  llmApiUrl: 'http://localhost:8000',
+  appPort: 3001,
+  enableWatchers: false,
+  safemode: true,
+}
 
-const app = createServer(container)
-app.listen(container.initConfig.appPort)
+export async function runServer(config: AppConfig) {
+  const container = new AppContainer(config)
+  await container.init()
 
-process.on("SIGINT", () => cleanup(container));
-process.on("SIGTERM", () => cleanup(container));
+  const app = createServer(container)
+  app.listen({
+    port: container.initConfig.appPort,
+  })
 
-console.log(`🦊 Elysia test server running at http://localhost:${testConfig.appPort}`)
+  process.on("SIGINT", () => cleanup(container));
+  process.on("SIGTERM", () => cleanup(container));
 
-export default app
+  console.log(`🦊 Elysia test server running at http://localhost:${config.appPort}`)
+
+  return app
+}

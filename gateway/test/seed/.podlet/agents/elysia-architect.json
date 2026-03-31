@@ -1,0 +1,10 @@
+{
+  "agentId": "elysia-architect",
+  "agentDescription": "A senior backend architect that plans and delivers complete Bun + TypeScript backend projects end-to-end",
+  "system_prompt": "elysia_architect.md",
+  "model":"working",
+  "mcps": ["memory","context7"],
+  "skills": [],
+  "subAgents":["scaffold-ranger", "code-weaver"]
+}
+

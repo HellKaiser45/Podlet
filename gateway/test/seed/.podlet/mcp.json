@@ -7,6 +7,10 @@
     "context7": {
       "command": "npx",
         "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "memory": {
+      "command": "docker",
+      "args": ["run", "-i", "-v", "claude-memory:/app/dist", "--rm", "mcp/memory"]
     }
   }
 }

@@ -1,6 +1,6 @@
 {
-  "agentId": "architect",
-  "agentDescription": "A specialist in code architecture and design of systems",
+  "agentId": "architect-sub",
+  "agentDescription": "A specialist in code architecture and design of systems can search in libraries or on the web",
   "model": "working",
   "system_prompt": "code_architect.md",
   "mcps": ["context7","ddg-search"],

@@ -18,14 +18,28 @@ export class AgentToolManager {
         type: "function",
         function: {
           name: `agent_${agentId}`,
-          description: agent.agentDescription || `delegate task to ${agentId}`,
+          description: `Delegate a task to ${agentId}:
+The agent has the following description : ${agent.agentDescription}`,
           parameters: {
             type: "object",
             properties: {
-              task: { type: "string", description: "Task to delegate to the agent explained clearly in natural language and given with necessary piecies of context." }
+              task: { type: "string", description: "Task to delegate to the agent explained clearly in natural language and given with necessary piecies of context." },
+              previous_action_summary: {
+                type: "string",
+                description: "Brief summary of what happened in the previous step (e.g., 'Created folder X')."
+              },
+              workspace_path: {
+                type: "string",
+                description: "The current working directory where operations should happen."
+              },
+              relevant_files: {
+                type: "array",
+                items: { type: "string" },
+                description: "List of file paths created or discussed so far."
+              },
             },
             required: ["task"]
-          }
+          },
         }
       })
     }
@@ -39,7 +53,7 @@ export class AgentToolManager {
   async execute(
     toolName: string,
     toolCallId: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
     parentFrameid: string,
     runId: string,
     threadId: string,
@@ -53,21 +67,26 @@ export class AgentToolManager {
       parent_frame_id: parentFrameid,
       answering_tool_call_id: toolCallId,
       agent_id: agentId,
-      history: [{ role: "user", content: args.task }],
+      history: [{ role: "user", content: JSON.stringify(args) }],
       pending_approvals: [],
       status: "running",
     }
 
     const runagent: RunAgentInput = {
-      message: args.task,
-      agentId: agentId,
+      message: { role: "user", content: JSON.stringify(args) },
+      forwardedProps: {
+        agentId: agentId,
+      },
       runId: runId,
       threadId: threadId,
+      tools: [],
+      context: [],
+      state: {},
     }
 
     const agentContext = createContext(runagent, childFrame)
 
-    const loop = new AgentChatLoop(agentContext, agentId)
+    const loop = new AgentChatLoop(agentContext, this.container, agentId)
     const result = await loop.execute()
 
     if (result.status === "completed") {

@@ -7,6 +7,8 @@ import {
 } from 'openai/resources/chat/completions';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { randomUUIDv7 } from "bun";
+import { RunAgentInput as AGUIRunAgentInput, RunFinishedEvent as AGUIRunFinishedEvent, BaseEvent } from "@ag-ui/core";
+import { Elysia, t, type Static } from 'elysia'
 //=======================================================================================
 // Config related types
 //=======================================================================================
@@ -77,8 +79,6 @@ export interface MCPServerConfig {
 //=======================================================================================
 // API Input types
 //=======================================================================================
-
-
 /** HIL definition for the frontend to backend */
 export interface UserDecision {
   /** if the HIL challenge is approved or not */
@@ -87,24 +87,56 @@ export interface UserDecision {
   feedback?: string;  // Optional reason if rejected
 }
 
-/** Main Chat API input*/
-export interface RunAgentInput {
-  /** Message from the user 
-   * we don't let the frontend handle the history
-   * so no need to send the history to the backend */
-  message?: string;
-  /** Name of the agent to run 
-   * it could de source of error if the agent is renamed 
-   * while human in the loop is ongoing */
-  agentId: string;
-  runId: string;
-  /** ID of the full conversation */
-  threadId: string;
-  /**  Id of the checkpoint to resume from */
-  checkpoint_id?: string;
-  /** the Record is actually toolcallid , userDecision */
-  decision?: Record<string, UserDecision>;
+export interface AgentForwardedProps {
+  agentId: string
+  decision?: Record<string, UserDecision>
 }
+
+/** Main Chat API input*/
+export type RunAgentInput = Omit<AGUIRunAgentInput, 'messages' | 'forwardedProps'> & {
+  message: LiteLLMMessage
+  forwardedProps: AgentForwardedProps
+}
+
+export type RunFinishedEvent = AGUIRunFinishedEvent & {
+  result: AgentStackFrame
+}
+
+export type CustomBaseEvent = BaseEvent & {
+  AgentId: string,
+}
+//=========================================================
+// Input validation
+//=========================================================
+
+const MessageSchema = t.Object({
+  role: t.Literal('user'),
+  content: t.String(),
+})
+
+const UserDecisionSchema = t.Object({
+  approved: t.Boolean(),
+  feedback: t.Optional(t.String()),
+})
+
+const AgentPropsSchema = t.Object({
+  agentId: t.String(),
+  decision: t.Optional(t.Record(t.String(), UserDecisionSchema))
+})
+
+export const RunAgentInputSchema = t.Object({
+  threadId: t.String(),
+  runId: t.String(),
+  parentRunId: t.Optional(t.String()),
+  state: t.Any(),
+  message: MessageSchema,
+  tools: t.Array(t.Unknown()),
+  context: t.Array(t.Unknown()),
+  forwardedProps: AgentPropsSchema,
+})
+
+//===========================================================
+
 
 /** Payload to send to the chat endpoint */
 export interface AgentRequest {
@@ -170,16 +202,17 @@ export interface HILConfig {
 //Checkpoint Agent Stack Frame
 //=======================================================================
 
-
 export type LiteLLMMessage = (ChatCompletionMessageParam | ChatCompletionAssistantMessageParam) & {
   reasoning_content?: string | null;
   thinking_blocks?: ThinkingAnthropic[] | null;
 }
 
-export type LiteLLMAssistantMessage = ChatCompletionAssistantMessageParam & {
-  reasoning_content?: string | null;
-  thinking_blocks?: ThinkingAnthropic[] | null;
+export function isAssistantWithToolCalls(
+  msg: LiteLLMMessage
+): msg is Extract<LiteLLMMessage, { role: 'assistant' }> & { tool_calls: ChatCompletionMessageToolCall[] } {
+  return msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
 }
+
 
 export interface AgentStackFrame {
   frame_id: string;
@@ -188,22 +221,10 @@ export interface AgentStackFrame {
   agent_id: string;
   history: LiteLLMMessage[];
   pending_approvals: PendingApproval[];
-  status: "running" | "suspended" | "completed";
+  status: "running" | "suspended" | "completed" | "error";
 }
 
-export function initFrame(agent: string, message: string): AgentStackFrame {
-  const userMessage = {
-    role: "user",
-    content: message
-  } as LiteLLMMessage
-  return {
-    frame_id: randomUUIDv7(),
-    agent_id: agent,
-    history: [userMessage],
-    pending_approvals: [],
-    status: "running",
-  }
-}
+
 
 // ===========================
 // CONTEXT
@@ -270,4 +291,5 @@ export interface AppConfig {
   llmApiUrl: string;
   appPort: number;
   enableWatchers: boolean;
+  safemode: boolean;
 }

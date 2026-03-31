@@ -11,6 +11,9 @@ import { join } from "path";
 import { watch, FSWatcher } from 'fs'
 import createfilesystem from "./system/files";
 import { AgentToolManager } from "./tools/agents-as-tools";
+import { AgentEventStream } from "./stream_handler";
+import { HilManager } from "./hil/hil-manager";
+import { HistoryCRUDClient } from "./db/db_history_client";
 
 export default class AppContainer {
   frameCRUD: FrameCRUDClient;
@@ -19,15 +22,20 @@ export default class AppContainer {
   modelManager: ModelsManager
   skillManager: SkillsManager;
   orchestrator: AgentOrchestrator;
+  hillManager: HilManager;
   agentManager: AgentsManager;
   initConfig: AppConfig;
-  agentToolsManager: AgentToolManager
+  agentToolsManager: AgentToolManager;
+  historyManager: HistoryCRUDClient;
+  eventManager: Record<string, AgentEventStream> = {}
   private watchers: FSWatcher[] = [];
 
   constructor(appconfig: AppConfig) {
     this.initConfig = appconfig
     const db = createDB(appconfig.podeletDir, appconfig.dbName)
     this.frameCRUD = new FrameCRUDClient(db)
+    this.historyManager = new HistoryCRUDClient(db)
+    this.hillManager = new HilManager(appconfig.safemode)
     this.mcpManager = new MCPManager(appconfig.podeletDir)
     this.modelManager = new ModelsManager(appconfig.podeletDir)
     this.skillManager = new SkillsManager(appconfig.podeletDir)

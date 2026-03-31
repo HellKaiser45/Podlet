@@ -1,7 +1,9 @@
 
+import { EventType } from "@ag-ui/core";
 import { AgentChatLoop } from "./agent-loop/chat-loop";
 import AppContainer from "./runtime";
-import { AgentStackFrame, RunAgentInput, initFrame, UserDecision, ExecutionContext, AgentState, LiteLLMMessage } from "./types";
+import { AgentStackFrame, RunAgentInput, UserDecision, ExecutionContext, AgentState, LiteLLMMessage } from "./types";
+import { randomUUIDv7 } from "bun";
 
 
 function detectnewleaf(input: AgentStackFrame): boolean {
@@ -24,28 +26,78 @@ export class AgentOrchestrator {
   constructor(container: AppContainer) {
     this.appContainer = container
   }
+
+  async initFrame(agent: string, message: LiteLLMMessage, runId?: string): Promise<AgentStackFrame> {
+    let agentHistory: LiteLLMMessage[] = []
+    if (runId) {
+      const history = await this.appContainer.historyManager.exists(runId)
+
+      if (history) {
+        agentHistory = await this.appContainer.historyManager.getByRunId(runId)
+      }
+      else {
+        await this.appContainer.historyManager.create(runId, [message])
+      }
+    }
+    agentHistory.push(message)
+    return {
+      frame_id: randomUUIDv7(),
+      agent_id: agent,
+      history: agentHistory,
+      pending_approvals: [],
+      status: "running",
+    }
+  }
+
+  async EndingEventHandler(input: RunAgentInput, res: AgentStackFrame) {
+    if (res.status === 'error' || res.status === 'running') {
+      this.appContainer.eventManager[input.runId].push({
+        AgentId: input.forwardedProps.agentId,
+        type: EventType.RUN_ERROR,
+        message: `orchestrator error ${res.status}`,
+        threadId: input.threadId,
+        runId: input.runId,
+      })
+    }
+    else {
+      this.appContainer.eventManager[input.runId].push({
+        AgentId: input.forwardedProps.agentId,
+        type: EventType.RUN_FINISHED,
+        threadId: input.threadId,
+        runId: input.runId,
+        result: res,
+      })
+      const oldHistory = await this.appContainer.historyManager.getByRunId(input.runId)
+      this.appContainer.historyManager.update(input.runId, oldHistory)
+    }
+  }
   /** Main entry point to sort and route depending if we are resuming or not */
   async executeAgent(input: RunAgentInput) {
 
+    this.appContainer.eventManager[input.runId].push({
+      AgentId: input.forwardedProps.agentId,
+      type: EventType.RUN_STARTED,
+      threadId: input.threadId,
+      runId: input.runId,
+    })
+
     const existing_checkpoint = await this.appContainer.frameCRUD.getByRunId(input.runId)
 
-    console.log('existing_checkpoint', existing_checkpoint)
+    let output_frame: AgentStackFrame
 
     if (Object.keys(existing_checkpoint).length !== 0) {
-      console.log(`📂 Found existing checkpoint for runId: ${input.runId}`);
-      const output_frame = await this.resume(input)
-      return output_frame
+      output_frame = await this.resume(input)
     } else {
-      console.log(`🆕 Starting new execution for runId: ${input.runId}`);
-      const output_frame = await this.startNewExecution(input)
-      return output_frame
+      output_frame = await this.startNewExecution(input)
     }
+    await this.EndingEventHandler(input, output_frame)
+    return output_frame
   }
 
   /** Start a new execution for the agent */
   private async startNewExecution(input: RunAgentInput) {
     if (!input.message) { throw new Error('We are trying to start a new execution but a message is missing from the input') }
-    const frame = initFrame(input.agentId, input.message)
+    const frame = await this.initFrame(input.forwardedProps.agentId, input.message, input.runId)
     const context: ExecutionContext = {
       input: input,
       frame: frame,
@@ -53,24 +105,25 @@ export class AgentOrchestrator {
       iteration: 0,
       maxIterations: 10,
     }
-    const loop = new AgentChatLoop(context, this.appContainer, input.agentId)
-    return await loop.execute()
+    const loop = new AgentChatLoop(context, this.appContainer, input.forwardedProps.agentId)
+    const res = await loop.execute()
+    return res
   }
 
-  private async resume(input: RunAgentInput): Promise<AgentStackFrame> {
-    if (!input.decision) {
+  private async resume(input: RunAgentInput) {
+    if (!input.forwardedProps.decision) {
       throw new Error('we are trying to resume but without any decision, it shouldnt happen');
     }
 
     const getPausedFrames = await this.appContainer.frameCRUD.getByStatus(input.runId, "suspended");
     for (const frame of getPausedFrames) {
-      this.applyDecisionToFrame(frame, input.decision);
+      this.applyDecisionToFrame(frame, input.forwardedProps.decision);
       await this.appContainer.frameCRUD.update(frame.frame_id, {
         pending_approvals: frame.pending_approvals
       });
     }
-
-    return await this.restartLeaves(input);
+    const res = await this.restartLeaves(input);
+    return res
   }
 
   async restartLeaves(input: RunAgentInput): Promise<AgentStackFrame> {
@@ -94,7 +147,7 @@ export class AgentOrchestrator {
 
     for (const ol of output_leaves) {
       if (detectnewleaf(ol) || !ol.parent_frame_id) {
-        return ol; // Return suspended or root frame
+        return ol;
       }
 
       const parent_frame = await this.appContainer.frameCRUD.getById(ol.parent_frame_id);
@@ -134,9 +187,6 @@ export class AgentOrchestrator {
         }
 
         if (approval.tool_call.type === "function") {
-          console.log(
-            `[${frame.frame_id.slice(0, 8)}] Tool ${approval.tool_call.function.name}: ${approval.approval_status.approval}`
-          );
         }
       }
     }

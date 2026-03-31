@@ -1,0 +1,10 @@
+{
+  "agentId": "structure-auditor",
+  "agentDescription": "A quality-assurance specialist that verifies project completeness, flags missing files, and initiates corrective re-generation.",
+  "system_prompt": "structure_auditor.md",
+  "model":"working",
+  "mcps": [],
+  "skills": [],
+  "subAgents":["elysia-architect"]
+}
+

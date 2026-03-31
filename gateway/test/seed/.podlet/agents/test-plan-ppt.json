@@ -1,6 +1,6 @@
 {
   "agentId": "ppt-agent",
-  "agentDescription": "A specialist in slides design",
+  "agentDescription": "A specialist agent in slides design and ppt creation. It has the ability to use its skills to read, modify or create good pptx files",
   "system_prompt": "ppt_prompt.md",
   "model":"working",
   "mcps": [],

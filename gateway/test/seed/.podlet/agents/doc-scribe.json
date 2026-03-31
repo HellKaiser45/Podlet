@@ -1,0 +1,10 @@
+{
+  "agentId": "doc-scribe",
+  "agentDescription": "A technical writing expert that produces developer-ready Markdown documentation for REST APIs.",
+  "system_prompt": "doc_scribe.md",
+  "model":"working",
+  "mcps": [],
+  "skills": [],
+  "subAgents":[]
+}
+

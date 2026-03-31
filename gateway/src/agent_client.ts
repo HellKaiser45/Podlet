@@ -2,6 +2,8 @@ import type { ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageT
 import type { AgentRequest, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
 import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
+import { TextMessageStartEvent, EventType, TextMessageChunkEvent } from '@ag-ui/core';
+import { randomUUIDv7 } from 'bun';
 
 
 export class AgentClient {
@@ -24,6 +26,20 @@ export class AgentClient {
       ...await this.appContainer.agentToolsManager.getAgentAsToolDefinition(agent.subAgents || []),
     ];
 
+    const cleanedTools = tools.map((tool: any) => {
+      if (tool?.type === "function" && tool.function) {
+        return {
+          ...tool,
+          function: {
+            ...tool.function,
+            strict: false         // ← Force strict: true for all tools
+          }
+        };
+      }
+      return tool; // pass through non-function tools unchanged
+    });
+
+
     const systemPrompt = await this.appContainer.skillManager.injectSkills(agent.skills || [], await this.appContainer.agentManager.getAgentprompt(agentId));
 
     return {
@@ -31,10 +47,9 @@ export class AgentClient {
       model: model.model,
       system_prompt: systemPrompt,
       history: history,
-      tools: tools,
+      tools: cleanedTools,
       response_format: agent.response_format,
     }
-
   }
 
   async *chatStream(agentId: string, history: LiteLLMMessage[]): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
@@ -42,9 +57,15 @@ export class AgentClient {
     const request = await this.buildRequest(agentId, history)
     const baseUrl = this.appContainer.initConfig.llmApiUrl.replace(/\/$/, '');
     const url = `${baseUrl}${this.streamEndpoint}`;
+
+    const start = new Date();
+    console.log(start.toLocaleString(), " start calling for chunks")
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+      },
       body: JSON.stringify(request),
     });
 
@@ -52,26 +73,23 @@ export class AgentClient {
       const errorText = await response.text();
       throw new Error(`Agent Server Error ${response.status}: ${errorText}`);
     }
+    if (!response.body) {
+      throw new Error(`Agent Server Error ${response.status}: No body`);
+    }
 
-    const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop()!;
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-          const chunk: LiteLLMStreamedChunk = JSON.parse(data);
-          yield chunk;
-        }
+    for await (const chunk of response.body) {
+      buffer += decoder.decode(chunk);
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? "";
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (!trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') return;
+        const jsonEvent: LiteLLMStreamedChunk = JSON.parse(data);
+        yield jsonEvent;
       }
     }
   }

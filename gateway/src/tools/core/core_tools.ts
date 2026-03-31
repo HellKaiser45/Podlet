@@ -1,5 +1,50 @@
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
 
+
+interface ITool {
+  name: string;
+  definition: ChatCompletionTool;
+  execute(args: Record<string, unknown>): Promise<unknown>;
+}
+
+class ReadFileTool {
+  readonly name = 'read_file';
+  readonly definition: ChatCompletionTool = {
+    type: 'function',
+    function: {
+      name: 'read_file',
+      description: `Read the contents of one or more files from the filesystem in an effective manner with BUN + async parallelization.
+Returns a JSON object mapping each absolute file path to its contents.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          paths: {
+            type: 'array',
+            description: 'One or more absolute file paths to read.',
+            items: {
+              type: 'string',
+              description: 'An absolute file path (e.g. /home/user/project/main.ts).',
+            },
+            minItems: 1,
+          },
+        },
+        required: ['paths'],
+      },
+    },
+  };
+  async execute(args: Record<string, unknown>): Promise<Record<string, string>> {
+    const paths = args.paths as string[];
+    const contents = await Promise.all(
+      paths.map(p =>
+        Bun.file(p).exists().then(exists =>
+          exists ? Bun.file(p).text() : `error: file not found at ${p}`
+        )
+      )
+    );
+    return Object.fromEntries(paths.map((p, i) => [p, contents[i]]));
+  }
+}
+
 /**
  * Result of a shell command execution
  */
@@ -59,7 +104,7 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
           }
         },
         required: ['command']
-      }
+      },
     }
   };
 
@@ -74,7 +119,6 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
     let timedOut = false;
 
     try {
-      console.log(`🐚 Executing: ${command}`);
 
       const proc = Bun.spawn(['bash', '-c', command], {
         cwd: working_directory,
@@ -105,24 +149,11 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
       let stderr = '';
       let exitCode: number | null = null;
 
-      try {
-        const result = await Promise.race([processPromise, timeoutPromise]) as any;
-        stdout = result.stdout;
-        stderr = result.stderr;
-        exitCode = result.exitCode;
-      } catch (error: any) {
-        if (error.message === 'TIMEOUT') {
-          timedOut = true;
-          try {
-            stdout = await new Response(proc.stdout).text();
-            stderr = await new Response(proc.stderr).text();
-          } catch {
-            // Process already killed
-          }
-        } else {
-          throw error;
-        }
-      }
+
+      const result = await Promise.race([processPromise, timeoutPromise]) as any;
+      stdout = result.stdout;
+      stderr = result.stderr;
+      exitCode = result.exitCode;
 
       const duration = Date.now() - startTime;
 
@@ -138,7 +169,6 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
       }
 
       const success = exitCode === 0;
-      console.log(`${success ? '✅' : '❌'} Command ${success ? 'succeeded' : 'failed'} (${duration}ms)`);
 
       return {
         success,
@@ -168,12 +198,14 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
  * Manages built-in tools that are always available
  */
 export class CoreToolsManager {
-  private tools: Map<string, ShellTool> = new Map();
+  private tools: Map<string, ITool> = new Map();
 
   constructor() {
     // Register core tools
     const shellTool = new ShellTool();
     this.tools.set(shellTool.name, shellTool);
+    const readFileTool = new ReadFileTool();
+    this.tools.set(readFileTool.name, readFileTool);
 
   }
 
@@ -219,7 +251,7 @@ export class CoreToolsManager {
   async execute(
     toolName: string,
     toolCallId: string,
-    args: Record<string, any>
+    args: Record<string, unknown>
   ): Promise<ChatCompletionToolMessageParam> {
     const tool = this.tools.get(toolName);
 
@@ -230,49 +262,14 @@ export class CoreToolsManager {
         content: `Core tool not found: ${toolName}`,
       };
     }
+    const result = await tool.execute(args);
 
-    try {
-      const result = await tool.execute(args);
+    return {
+      role: "tool",
+      tool_call_id: toolCallId,
+      content: JSON.stringify(result),
+    };
 
-      // Format output
-      let content = '';
-
-      if (result.stdout) {
-        content += result.stdout;
-      }
-
-      if (result.stderr && !result.success) {
-        content += result.stderr ? `\n\nSTDERR:\n${result.stderr}` : '';
-      }
-
-      if (!result.success) {
-        if (result.timedOut) {
-          content = `Command timed out after ${args.timeout || 30}s:\n\n${content}`;
-        } else if (result.exitCode !== null) {
-          content = `Command failed with exit code ${result.exitCode}:\n\n${content}`;
-        } else {
-          content = `Command execution error:\n\n${content}`;
-        }
-      }
-
-      if (!content) {
-        content = 'Command executed successfully (no output)';
-      }
-
-      return {
-        role: "tool",
-        tool_call_id: toolCallId,
-        content: content.trim(),
-      };
-
-    } catch (error) {
-      console.error(`❌ Core tool execution failed: ${toolName}`, error);
-      return {
-        role: "tool" as const,
-        tool_call_id: toolCallId,
-        content: `Execution error: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
   }
 
   /**

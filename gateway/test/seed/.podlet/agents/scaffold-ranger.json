@@ -1,0 +1,11 @@
+
+{
+  "agentId": "scaffold-ranger",
+  "agentDescription": "A specialist in bootstrapping modern TypeScript project structures with precise folder hierarchies and configuration files.",
+  "system_prompt": "scaffold_ranger.md",
+  "model":"working",
+  "mcps": [],
+  "skills": [],
+  "subAgents":["structure-auditor"]
+}
+

@@ -1,7 +1,7 @@
 {
   "working": {
-    "provider": "moonshot",
-    "model": "kimi-k2.5"
+    "provider": "openrouter",
+    "model": "openai/gpt-5.4-mini"
   },
   "nokey": {
     "provider": "openai",

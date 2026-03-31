@@ -1,0 +1,10 @@
+{
+  "agentId": "code-weaver",
+  "agentDescription": "A TypeScript code generation expert focused on writing clean, type-safe Elysia.js application logic.",
+  "system_prompt": "code_weaver.md",
+  "model":"working",
+  "mcps": ["memory"],
+  "skills": [],
+  "subAgents":["doc-scribe"]
+}
+

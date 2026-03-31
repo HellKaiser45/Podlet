@@ -10,15 +10,12 @@ export function createDB(path: string, name: string) {
   let sqlite: Database;
 
   if (name === ':memory:') {
-    console.log('🚀 Creating in memory database')
     sqlite = new Database(name)
-
   }
 
   else {
     sqlite = new Database(join(path, name));
   }
-
 
   const db = drizzle(sqlite, { schema });
 
@@ -26,7 +23,6 @@ export function createDB(path: string, name: string) {
   migrate(db, { migrationsFolder: join(import.meta.dir, "../../drizzle/") })
 
   return db;
-
 }
 
 
