@@ -1,0 +1,12 @@
+{
+  "name": "@podlet/types",
+  "private": true,
+  "module": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "openai": "^6.33.0"
+  },
+  "devDependencies": {
+    "@ag-ui/core": "^0.0.48"
+  }
+}

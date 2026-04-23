@@ -1,0 +1,10 @@
+{
+  "agentId": "PODLET Backend Architect Agent",
+  "agentDescription": "Designs API contracts, service boundaries, data models, and integration patterns. Produces precise specs for coder agents to implement. Use before any significant backend build or when API structure, contracts, or service design need to be defined.",
+  "model": "smart",
+  "system_prompt": "backend_architect.md",
+  "mcps": ["context7"],
+  "skills": ["api-and-interface-design"],
+  "subAgents": []
+}
+

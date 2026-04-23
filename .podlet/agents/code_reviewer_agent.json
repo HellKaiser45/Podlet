@@ -1,0 +1,10 @@
+{
+  "agentId": "PODLET Code Reviewer Agent",
+  "agentDescription": "Reviews code for bugs, security issues, performance, and best practices. Delivers prioritized feedback (blocking / warning / suggestion). Primarily backend-focused but covers full stack. Use before any merge or when code quality needs to be validated.",
+  "model": "fast",
+  "system_prompt": "code_reviewer.md",
+  "mcps": [],
+  "skills": ["code-reviewer", "performance-optimization", "code-review-and-quality"],
+  "subAgents": ["PODLET Frontend Reviewer Agent"]
+}
+

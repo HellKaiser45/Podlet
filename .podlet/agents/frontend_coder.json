@@ -1,0 +1,10 @@
+{
+  "agentId": "PODLET Frontend Coder Agent",
+  "agentDescription": "Implements UI components, layouts, interactions, and client-side logic with precision. Use when frontend work is scoped and ready to be built — spec or design must be defined first.",
+  "model": "fast",
+  "system_prompt": "frontend_coder_agent.md",
+  "mcps": ["context7"],
+  "skills": ["frontend-ui-engineering"],
+  "subAgents": ["asset_creator"]
+}
+

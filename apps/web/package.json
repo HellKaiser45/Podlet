@@ -1,0 +1,37 @@
+{
+  "name": "@podlet/web",
+  "version": "0.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@podlet/types": "workspace:*",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/dompurify": "^3.2.0",
+    "solid-devtools": "^0.34.3",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.4",
+    "vite-plugin-solid": "^2.11.8"
+  },
+  "dependencies": {
+    "@elysiajs/eden": "^1.4.9",
+    "@podlet/api-client": "workspace:*",
+    "@podlet/config": "workspace:*",
+    "@solidjs/router": "^0.16.1",
+    "@tailwindcss/container-queries": "^0.1.1",
+    "daisyui": "^5.5.19",
+    "dompurify": "^3.3.3",
+    "highlight.js": "^11.11.1",
+    "marked": "^17.0.5",
+    "marked-highlight": "^2.2.4",
+    "solid-js": "^1.9.9"
+  }
+}

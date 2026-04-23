@@ -1,0 +1,10 @@
+{
+  "agentId": "PODLET Frontend Architect Agent",
+  "agentDescription": "Frontend design expert — invoke for any website, static site, landing page, dashboard, UI architecture, component system, or UX flow request. DO NOT invoke for bug fixes, type errors, single-file edits, or tasks with an existing spec — route those to a coder agent.",
+  "model": "smart",
+  "system_prompt": "frontend_architect.md",
+  "mcps": [],
+  "skills": ["enhance-prompt", "idea-refine", "theme-factory", "taste-design"],
+  "subAgents": ["asset_creator"]
+}
+

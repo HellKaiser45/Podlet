@@ -1,0 +1,10 @@
+{
+  "agentId": "Coder",
+  "agentDescription": "Purpose: Executes concrete coding tasks (write, fix, patch, test) with precision and zero scope creep.When to use: When you need something coded — not discussed, not designed, just done.",
+  "model": "fast",
+  "system_prompt": "coder_agent.md",
+  "mcps": ["context7"],
+  "skills": ["debugging-and-error-recovery", "security-best-practices"],
+  "subAgents": ["PODLET Frontend Coder Agent"]
+}
+

@@ -1,0 +1,26 @@
+{
+  "fast": {
+    "provider": "openrouter",
+    "model": "google/gemma-4-31b-it"
+  },
+  "smart": {
+    "provider": "zai",
+    "model": "GLM-5.1",
+    "base_url": "https://api.z.ai/api/coding/paas/v4"
+  },
+  "reasoning": {
+    "provider": "openai",
+    "model": "o1-mini"
+  },
+  "local-llama": {
+    "provider": "openai",
+    "model": "llama3.2",
+    "base_url": "http://localhost:11434/v1",
+    "api_key": "ollama"
+  },
+  "gemini": {
+    "provider": "gemini",
+    "model": "gemini-2.0-flash-exp",
+    "temperature": 0.5
+  }
+}

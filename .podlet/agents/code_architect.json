@@ -1,0 +1,10 @@
+{
+  "agentId": "PODLET Main Orchestrator",
+  "agentDescription": "Head architect and coordinator of the PODLET framework. Explores codebases, designs implementation plans, and dispatches specialized subagents. Use as the entry point for any task — it plans, delegates, and reports. Never implements directly.",
+  "model": "smart",
+  "system_prompt": "code_architect.md",
+  "mcps": ["context7","ddg-search"],
+  "skills": ["idea-refine", "planning-and-task-breakdown"],
+  "subAgents": ["PODLET Frontend Architect Agent", "PODLET Backend Architect Agent", "Coder", "PODLET Code Reviewer Agent", "Documentation Master Agent"]
+}
+

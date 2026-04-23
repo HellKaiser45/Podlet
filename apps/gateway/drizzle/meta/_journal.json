@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1770648801224,
+      "tag": "0000_messy_blur",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1772276071399,
+      "tag": "0001_slim_the_santerians",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1773493792824,
+      "tag": "0002_shiny_tiger_shark",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1774973775459,
+      "tag": "0003_add_history_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1775387568625,
+      "tag": "0004_chunky_sunset_bain",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun-types"],
+    "rootDir": "./src",
+    "outDir": "./dist",
+    /* Add these two lines below */
+    "emitDeclarationOnly": true,
+    "declaration": true
+  },
+  "include": ["src/**/*"]
+}

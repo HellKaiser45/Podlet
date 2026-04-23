@@ -1,0 +1,27 @@
+{
+  "name": "@podlet/gateway",
+  "version": "1.0.50",
+  "scripts": {
+    "test": "bun test apps/gateway/test/api-no-hill.test.ts",
+    "dev": "bun run --watch src/start_prod_server.ts"
+  },
+  "dependencies": {
+    "@ag-ui/core": "^0.0.48",
+    "@elysiajs/cors": "^1.4.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "drizzle-orm": "^0.45.1",
+    "elysia": "latest",
+    "openai": "^6.18.0",
+    "pptxgenjs": "^4.0.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "bun-types": "latest",
+    "drizzle-kit": "^0.31.9",
+    "@podlet/types": "workspace:*",
+    "@podlet/config": "workspace:*"
+  },
+  "module": "src/index.ts",
+  "types": "src/index.ts"
+}

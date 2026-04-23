@@ -1,0 +1,13 @@
+{
+  "name": "@podlet/config",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "module": "src/index.ts",
+  "types": "src/index.ts",
+  "devDependencies": {
+    "@podlet/types": "workspace:*"
+  }
+}

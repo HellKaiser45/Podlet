@@ -1,0 +1,10 @@
+{
+  "agentId": "PODLET Frontend Reviewer Agent",
+  "agentDescription": "Reviews frontend code and tests the rendered UI for correctness, accessibility, responsiveness, and spec alignment. Use after frontend implementation is complete and before merge or delivery.",
+  "model": "fast",
+  "system_prompt": "frontend_reviewer.md",
+  "mcps": [],
+  "skills": ["browser-testing-with-devtools", "playwright", "webapp-testing"],
+  "subAgents": []
+}
+

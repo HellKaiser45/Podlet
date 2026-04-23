@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@plugin "daisyui";
+@plugin "@tailwindcss/typography";
+
+@plugin "daisyui/theme" {
+  name: "catppuccin-mocha";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+
+  /* ===== BASE COLORS ===== */
+  /* Following Catppuccin's actual lightness hierarchy:
+     Crust (darkest) → Mantle → Base → Surface0 (lightest bg) */
+  --color-base-100: #1e1e2e; /* Base      — main panels, cards          */
+  --color-base-200: #181825; /* Mantle    — secondary panels, inputs     */
+  --color-base-300: #11111b; /* Crust     — page background              */
+  --color-base-content: #cdd6f4; /* Text  — body copy, headlines         */
+
+  /* ===== ACCENT COLORS ===== */
+  /* Mauve as primary — matches the mockup's button/highlight usage */
+  --color-primary: #cba6f7;         /* Mauve  */
+  --color-primary-content: #1e1e2e;
+
+  /* Blue as secondary */
+  --color-secondary: #89b4fa;       /* Blue   */
+  --color-secondary-content: #1e1e2e;
+
+  /* Peach as accent — replaces teal, matches mockup's tertiary */
+  --color-accent: #fab387;          /* Peach  */
+  --color-accent-content: #1e1e2e;
+
+  /* Surface0 as neutral — used for hover states, surface-variant
+     backgrounds, and the RPG slot backgrounds in the mockup */
+  --color-neutral: #313244;         /* Surface0 */
+  --color-neutral-content: #cdd6f4;
+
+  /* ===== SEMANTIC COLORS ===== */
+  --color-info: #89b4fa;            /* Blue   */
+  --color-info-content: #1e1e2e;
+
+  --color-success: #a6e3a1;         /* Green  */
+  --color-success-content: #1e1e2e;
+
+  --color-warning: #f9e2af;         /* Yellow */
+  --color-warning-content: #1e1e2e; /* dark text required on bright yellow */
+
+  --color-error: #f38ba8;           /* Red    */
+  --color-error-content: #1e1e2e;
+
+  /* ===== UI PROPERTIES ===== */
+  /* Terminal/HUD aesthetic — sharp corners, almost no rounding.
+     The mockup is square-cornered everywhere; only textareas get rounded-sm */
+  --radius-selector: 0rem;    /* buttons, checkboxes, radios: fully square  */
+  --radius-field: 0.125rem;   /* inputs, selects: 1px of softness only      */
+  --radius-box: 0.25rem;      /* cards, dropdowns: equivalent to rounded-sm */
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+
+  --border: 1px;
+  --depth: 0;   /* flat surfaces — the mockup has no elevation/shadows */
+  --noise: 0;   /* clean, no texture                                   */
+}

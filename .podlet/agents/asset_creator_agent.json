@@ -1,0 +1,10 @@
+{
+  "agentId": "asset_creator",
+  "agentDescription": "Generates binary visual assets (PNG, SVG, video, shaders, screenshots). Invoke only when the output is a standalone visual file, not code. DO NOT invoke for TypeScript, JavaScript, CSS, or any text-based source file.",
+  "model": "fast",
+  "system_prompt": "asset_creator.md",
+  "mcps": [],
+  "skills": ["algorithmic-art","canvas-design", "shader-dev", "screenshot", "theme-factory" ],
+  "subAgents": []
+}
+

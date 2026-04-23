@@ -1,0 +1,20 @@
+{
+  "server": {
+    "port": 3000,
+    "host": "127.0.0.1",
+    "pythonPort": 8000,
+    "webPort": 3002,
+    "cors_enabled": true
+  },
+  "database": {
+    "path": "podlet.db"
+  },
+  "logging": {
+    "level": "info"
+  },
+  "features": {
+    "hil_enabled": true,
+    "max_concurrent_agents": 5,
+    "cors_origin": "http://localhost:3002"
+  }
+}
