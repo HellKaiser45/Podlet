@@ -1,398 +1,197 @@
 <img src="podlet-logo.png" width="200" />
 
 # Podlet
+**Modular AI Agent Orchestration System**
 
-> An intelligent agent orchestration system with multi-agent workflows, tool sandboxing, and human-in-the-loop oversight.
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/Runtime-Bun-black)](https://bun.sh)
+[![Python](https://img.shields.io/badge/Backend-Python%203.10+-blue)](https://www.python.org)
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Bun](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![Python](https://img.shields.io/badge/python-3.10+-blue)](https://python.org)
-[![SolidJS](https://img.shields.io/badge/frontend-SolidJS-blue)](https://solidjs.com)
-
-## What is Podlet
-
-Podlet is a modular AI agent operator. Agents are stateless — they live and die per conversation run. The system orchestrates multi-agent workflows where a main orchestrator agent dispatches tasks to specialized sub-agents (Coder, Frontend Architect, Backend Architect, Code Reviewer, etc.). Each agent has its own LLM model, system prompt, tools, skills, and sub-agents. The system supports:
-- **Multi-provider LLM** via LiteLLM (OpenAI, Anthropic, OpenRouter, Gemini, Ollama, custom endpoints)
-- **MCP (Model Context Protocol)** for external tool integration
-- **Skills** — YAML-frontmatter modules injected into agent prompts
-- **Human-in-the-loop** approval for sensitive tool calls
-- **Virtual Filesystem** — sandboxed file operations with `/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db` and `/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db` schemes
-- **SSE streaming** following AG-UI event specifications
+## What is Podlet?
+Podlet is a high-performance, modular orchestration system designed to manage complex AI agent workflows. By combining a fast TypeScript gateway, a flexible Python LLM backend, and a reactive SolidJS frontend, Podlet enables the creation of specialized agents that can collaborate, use external tools via MCP (Model Context Protocol), and operate within a secure virtual filesystem.
 
 ## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                    Podlet Architecture                     │
-├──────────────────────────────────────────────────────────┤
-│                                                           │
-│  ┌─────────────┐    SSE/REST    ┌─────────────────────┐  │
-│  │  Web UI      │◄─────────────►│  Gateway (Elysia)    │  │
-│  │  SolidJS     │  localhost:3002│  localhost:3000      │  │
-│  │  port 3002   │◄──proxy──────►│                      │  │
-│  └─────────────┘               │  ┌────────────────┐  │  │
-│                                │  │ Orchestrator    │  │  │
-│                                │  │ Agent Loop      │  │  │
-│                                │  │ HIL Manager     │  │  │
-│                                │  │ VFS Sandbox     │  │  │
-│                                │  │ MCP Client      │  │  │
-│                                │  │ Skills Manager   │  │  │
-│                                │  └────────────────┘  │  │
-│                                │         │             │  │
-│                                │    SSE/HTTP           │  │
-│                                │         ▼             │  │
-│                                │  ┌────────────────┐  │  │
-│                                │  │ Python Backend   │  │  │
-│                                │  │ FastAPI+LiteLLM  │  │  │
-│                                │  │ localhost:8000   │  │  │
-│                                │  └────────────────┘  │  │
-│                                └─────────────────────┘  │
-│                                         │               │
-│                                         ▼               │
-│                                ┌─────────────────┐     │
-│                                │  ~/.podlet/       │     │
-│                                │  config.json      │     │
-│                                │  models.json      │     │
-│                                │  mcp.json         │     │
-│                                │  .env (keys)      │     │
-│                                │  agents/*.json    │     │
-│                                │  prompts/*.md     │     │
-│                                │  skills/          │     │
-│                                │  SQLite DB        │     │
-│                                └─────────────────┘     │
-└──────────────────────────────────────────────────────────┘
+```text
+       [ User Interface ] <------> [ Gateway (Elysia/Bun) ] <------> [ Python Backend (FastAPI) ]
+       (SolidJS / Web)             (Orchestrator & API)              (LiteLLM / Streaming)
+                                            |                                  |
+                                            v                                  v
+                                    [ Virtual FS ]                      [ LLM Providers ]
+                                    (Workspace/Artifacts)               (OpenRouter, OpenAI, 
+                                                                        Ollama, Gemini, etc.)
+                                            |
+                                            +------> [ MCP Servers ]
+                                                     (Search, Context, etc.)
 ```
 
 ## Quick Start
 
+### Linux / macOS
 ```bash
-# Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+```
 
-# Windows PowerShell
+### Windows PowerShell
+```powershell
 irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 | iex
-
-# Manual setup
-git clone https://github.com/HellKaiser45/Podlet.git
-cd Podlet
-bun run init     # Interactive setup wizard
-bun run start    # Launch all services
 ```
 
 ## Manual Setup
 
-Prerequisites:
-- **Bun** >= 1.0 — https://bun.sh
-- **Python** >= 3.10 — https://python.org
-- **Git** — https://git-scm.com
+### Prerequisites
+- **Bun runtime** (latest)
+- **Python 3.10+**
+- **Git**
 
-Steps:
-```bash
-git clone https://github.com/HellKaiser45/Podlet.git
-cd Podlet
-bun install
-python3 -m venv agent_core_py/.venv
-source agent_core_py/.venv/bin/activate  # Windows: agent_core_py\\.venv\\Scripts\\activate
-pip install -r agent_core_py/requirements.txt
-bun run init
-```
+### Installation
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/HellKaiser45/Podlet.git
+   cd Podlet
+   ```
+2. **Initialize the system**
+   ```bash
+   bun run init
+   ```
+   *This interactive wizard checks prerequisites, installs dependencies, and helps you configure your environment.*
+3. **Start all services**
+   ```bash
+   bun run start
+   ```
 
-Available scripts:
-| Command | Description |
-|---|---|
-| `bun run init` | Interactive setup wizard (prerequisites check, dependency install, config generation) |
-| `bun run start` | Start all services (gateway + python + web UI) |
-| `bun run start:gateway` | Start only the Elysia gateway |
-| `bun run start:python` | Start only the Python LLM backend |
-| `bun run dev:gateway` | Start gateway in watch mode |
-| `bun run dev:web` | Start web UI in dev mode |
+**Other available scripts:**
+- `bun run start:gateway` — Launch only the Gateway.
+- `bun run start:python` — Launch only the Python backend.
 
 ## Configuration
+Podlet uses a dedicated configuration directory located at `~/.podlet/` (referenced as `podeletDir` in code).
 
-All runtime configuration lives in `~/.podlet/`:
-
-```
-~/.podlet/
-├── config.json        # Server settings (port, host, features)
-├── models.json        # LLM model definitions
-├── mcp.json           # MCP server definitions
-├── .env               # API keys
-├── agents/            # Agent definitions (*.json)
-│   ├── code_architect.json
-│   ├── coder_agent.json
-│   └── ...
-├── prompts/           # Agent system prompts (*.md)
-│   ├── code_architect.md
-│   ├── coder_agent.md
-│   └── ...
-└── skills/            # Skill modules (each with SKILL.md)
-    ├── idea-refine/
-    ├── planning-and-task-breakdown/
-    └── ...
-```
-
-#### config.json
-```json
-{
-  "server": { "port": 3000, "host": "127.0.0.1", "cors_enabled": true },
-  "database": { "path": "podlet.db" },
-  "logging": { "level": "info" },
-  "features": { "hil_enabled": true, "max_concurrent_agents": 5 }
-}
-```
-
-#### models.json
-Each key is a model alias used in agent definitions:
-```json
-{
-  "fast": {
-    "provider": "openrouter",
-    "model": "google/gemma-4-31b-it"
-  },
-  "smart": {
-    "provider": "zai",
-    "model": "GLM-5.1",
-    "base_url": "https://api.z.ai/api/coding/paas/v4"
-  },
-  "local-llama": {
-    "provider": "openai",
-    "model": "llama3.2",
-    "base_url": "http://localhost:11434/v1",
-    "api_key": "ollama"
-  }
-}
-```
-Fields: `provider` (required), `model` (required), `api_key_name` (env var name for the API key), `temperature`, `max_tokens`, `base_url` (for custom endpoints).
-
-Supported providers: openai, anthropic, openrouter, gemini, ollama, or any LiteLLM-compatible provider.
-
-#### mcp.json
-```json
-{
-  "mcpServers": {
-    "ddg-search": {
-      "command": "uvx",
-      "args": ["duckduckgo-mcp-server"]
-    },
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
-    }
-  }
-}
-```
-
-#### .env
-```
-OPENROUTER_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-ZAI_API_KEY=...
-```
+| File | Description |
+| :--- | :--- |
+| `config.json` | Global server settings: port, database paths, logging, and feature flags. |
+| `models.json` | LLM definitions including provider, model ID, API key reference, and temperature. |
+| `mcp.json` | Configuration for MCP servers (commands, arguments, and environment variables). |
+| `.env` | Environment variables for API keys (e.g., `OPENROUTER_API_KEY`). |
+| `agents/*.json` | Individual agent definitions and capabilities. |
+| `prompts/*.md` | System prompts for agents. |
+| `skills/` | Directories containing skill modules (documented in `SKILL.md`). |
 
 ## Agents
+Agents are the core units of Podlet. They are defined in `~/.podlet/agents/*.json`.
 
-#### Agent Definition Schema
+### Agent Schema
 ```json
 {
-  "agentId": "unique-agent-name",
-  "agentDescription": "What this agent does",
-  "model": "fast",              // Key from models.json
-  "system_prompt": "prompt.md", // Filename in prompts/
-  "mcps": ["context7"],         // Optional: MCP server IDs
-  "skills": ["idea-refine"],    // Optional: Skill names
-  "subAgents": ["Coder"],       // Optional: Other agentIds to use as tools
-  "response_format": {}         // Optional: Force output format
+  "agentId": "string",
+  "agentDescription": "string",
+  "model": "string (key from models.json)",
+  "system_prompt": "string (filename in prompts/)",
+  "mcps": ["mcpId1", "mcpId2"],
+  "skills": ["skill-name1", "skill-name2"],
+  "subAgents": ["agentId1", "agentId2"]
 }
 ```
 
-#### Creating an Agent
-
-1. Create a JSON file in `~/.podlet/agents/your-agent.json`
-2. Create a markdown prompt in `~/.podlet/prompts/your-prompt.md`
-3. Set `"system_prompt"` in the JSON to the prompt filename
-4. If watchers are enabled, the agent is loaded automatically. Otherwise restart the gateway.
-
-Example — a simple code reviewer:
-```json
-// ~/.podlet/agents/reviewer.json
-{
-  "agentId": "Reviewer",
-  "agentDescription": "Reviews code for bugs, security issues, and best practices",
-  "model": "fast",
-  "system_prompt": "reviewer.md",
-  "mcps": ["context7"]
-}
-```
-
-#### Sub-Agents (A2A Pattern)
-
-Agents can delegate to other agents via the `subAgents` field. Sub-agents appear as tools named `agent_{agentId}`. When a parent agent calls a sub-agent tool, the orchestrator creates a child frame, runs the sub-agent's loop, and returns the result to the parent's tool call. The parent is suspended while the child runs.
-
-#### Seed Agents
-
-The init script seeds these default agents:
-| Agent | Model | Description |
-|---|---|---|
-| PODLET Main Orchestrator | smart | Head architect, plans and delegates |
-| Coder | fast | Executes coding tasks |
-| PODLET Frontend Architect Agent | smart | Frontend design expert |
-| PODLET Backend Architect Agent | smart | API and service design |
-| PODLET Code Reviewer Agent | fast | Code review and quality |
-| Documentation Master Agent | fast | Document creation and writing |
-| PODLET Frontend Coder Agent | fast | Frontend implementation |
-| Asset Creator Agent | fast | Creates visual assets |
-| Frontend Reviewer Agent | fast | Frontend code review |
+### Seed Agents
+Podlet comes with a set of pre-configured agents:
+- **PODLET Main Orchestrator**: The primary entry point for complex tasks.
+- **Coder**: Specialized in writing and refining code.
+- **Frontend Architect / Coder**: Handles UI design and implementation.
+- **Backend Architect**: Designs API and database structures.
+- **Code Reviewer**: Analyzes code for quality and bugs.
+- **Documentation Master**: Creates professional technical docs.
+- **Asset Creator**: Manages visual/multimedia assets.
+- **Frontend Reviewer**: Audits UI/UX implementation.
 
 ## Tools System
-
-Agents have access to three types of tools:
-
-**Core Tools** (always available):
-- `read_file` — Read one or more files from the VFS
-- `execute_shell` — Execute bash commands in the sandbox (30s timeout, max 300s)
-
-**MCP Tools** (from configured MCP servers):
-- Tools are prefixed: `{mcpId}_{toolName}` (e.g., `ddg-search_search`, `context7_query-docs`)
-- Started on-demand when an agent references them in its `mcps` list
-
-**Sub-Agent Tools** (from configured sub-agents):
-- Tools are prefixed: `agent_{agentId}` (e.g., `agent_Coder`)
-- Parameters: `task` (required), `previous_action_summary`, `workspace_path`, `relevant_files`
+Agents have access to three categories of tools:
+1. **Core Tools**: Built-in capabilities like `read_file` and `execute_shell` (sandboxed).
+2. **MCP Tools**: Tools provided by MCP servers defined in `mcp.json` (e.g., `ddg-search_search`).
+3. **Sub-agent Tools**: Other agents can be called as tools using the `agent_` prefix (e.g., `agent_Coder`).
 
 ## Skills
-
-Skills are YAML-frontmatter modules stored in `~/.podlet/skills/`. Each skill has a `SKILL.md` file:
-
-```markdown
----
-name: my-skill
-description: What this skill does
----
-
-Skill instructions and references go here.
-```
-
-When an agent has skills configured, they are injected into the system prompt as XML blocks:
-```xml
-<available_skills>
-<skill>
-<name>my-skill</name>
-<description>...</description>
-<location>/home/hellkaiser/.podlet/skillsmy-skill/SKILL.md</location>
-</skill>
-</available_skills>
-```
-
-Agents can then read the SKILL.md file to get instructions.
+Skills are reusable modules that extend an agent's capabilities. They are stored in the `skills/` directory and consist of a folder containing a `SKILL.md` file. The contents of the skill are injected into the agent's system prompt at runtime.
 
 ## Human-in-the-Loop (HIL)
-
-When HIL is enabled (config `features.hil_enabled` or `safemode`), the system intercepts tool calls that match editing keywords (write, edit, create, delete, execute, shell, etc.) and suspends execution.
-
-**Flow:**
-1. Agent calls a sensitive tool
-2. HIL Manager flags the tool call as `pending`
-3. Frame is saved to database with `status: "suspended"`
-4. SSE event `AWAITING_APPROVAL` is sent to the frontend
-5. User sends approve/reject decision via `POST /api/chat` with `decision` field
-6. Orchestrator resumes the agent loop
-
-**Decision format:**
-```json
-{
-  "toolCallId": {
-    "approved": true,
-    "feedback": "optional feedback if rejected"
-  }
-}
-```
+To prevent unauthorized actions, Podlet includes a **safemode**.
+- The `HilManager` monitors tool calls for "editing keywords" (e.g., `write`, `edit`, `delete`, `execute`).
+- If a match is found, the agent loop is **suspended** (`status: "suspended"`).
+- The user is prompted to **Approve** or **Reject** the action (with optional feedback) via the UI before the agent can proceed.
 
 ## Virtual Filesystem (VFS)
+Agents operate in a secure sandbox using a scheme-based VFS:
+- `/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db` : Read-only access to input files.
+- `/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db` : Write access for output files.
+- `/home/hellkaiser/.podlet/skills` : Access to skill-specific resources (restricted to agents possessing the skill).
 
-Agents operate in a sandboxed virtual filesystem with three schemes:
-
-| Scheme | Purpose | Read | Write |
-|---|---|---|---|
-| `/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db` | User input files | Yes | No (read-only) |
-| `/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db` | Agent output files | Yes | Yes |
-| `/home/hellkaiser/.podlet/skills` | Skill resources | Yes | No |
-
-Real paths are resolved to `~/.podlet/workspace/{runId}/` and `~/.podlet/artifacts/{runId}/`. The VFS blocks:
-- Path traversal (`..`)
-- Absolute paths outside sandbox
-- URLs
-- Unauthorized scheme access
+Real paths are mapped to `~/.podlet/workspace/{runId}/` and `~/.podlet/artifacts/{runId}/`.
 
 ## API Reference
+Base URL: `http://localhost:3000/api` | Interactive Docs: `/api/openapi`
 
-All API routes are prefixed with `/api`. Interactive docs at `http://localhost:3000/api/openapi`.
-
+### Chat
 | Method | Path | Description |
-|---|---|---|
-| POST | /api/chat | Start/resume agent execution (SSE stream) |
-| GET | /api/history/:runid | Get message history |
-| GET | /api/runids | List all run IDs |
-| PATCH | /api/history/label/:runid | Set a label for a run |
-| DELETE | /api/chat/:runid | Delete history and VFS for a run |
-| GET | /api/agents/all | List all agents |
-| GET | /api/agents/:agentId | Get specific agent definition |
-| GET | /api/models/all | List all model configs |
-| GET | /api/mcps/all | List all MCP configs |
-| GET | /api/mcps/running | List running MCP instances |
-| POST | /api/file/upload | Upload files (multipart) |
-| GET | /api/file/download/:runid/:fileid | Download a file |
-| GET | /api/file/:runid/:fileid | Read file text content |
-| GET | /api/file/all/:runid | List all files for a run |
-| DELETE | /api/file/:runid/:fileid | Delete a file |
-| PATCH | /api/file/:runid/:fileid | Update file content |
+| :--- | :--- | :--- |
+| `POST` | `/chat` | SSE stream for agent interaction. |
+| `GET` | `/history/:runid` | Retrieve history for a specific run. |
+| `GET` | `/runids` | List all session run IDs. |
+| `PATCH` | `/history/label/:runid` | Label a specific run. |
+| `DELETE` | `/chat/:runid` | Purge history and VFS for a run. |
 
-Python backend at `http://localhost:8000`:
-| POST | /chat/stream | SSE streaming LLM completion |
+### Agents & Models
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/agents/all` | List all defined agents. |
+| `GET` | `/agents/:agentId` | Get specific agent details. |
+| `GET` | `/models/all` | List all configured LLM models. |
+
+### MCP & Files
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `GET` | `/mcps/all` | List MCP configurations. |
+| `GET` | `/mcps/running` | List active MCP instances. |
+| `POST` | `/file/upload` | Upload files to a run. |
+| `GET` | `/file/:runid/:fileid` | Read file content. |
+| `GET` | `/file/all/:runid` | List all files for a run. |
+
+### Python Backend (Internal)
+`POST http://localhost:8000/chat/stream` — Handles LLM streaming completions.
 
 ## Frontend
-
-The web UI runs on `http://localhost:3002` and provides:
-- Thread-based conversations
-- Real-time SSE streaming with typing indicators
-- File upload and attachment support
-- Agent selection
-- Conversation history sidebar
-- Dark theme (Catppuccin Mocha via DaisyUI)
+The web UI is accessible at `http://localhost:3002`.
+- **Thread Management**: Sidebar for organizing conversations.
+- **Streaming UI**: Real-time responses with typing indicators.
+- **File Drawer**: Easy access to VFS attachments.
+- **Agent HUD**: Overview of agent statuses and configurations.
+- **Styling**: DaisyUI Catppuccin Mocha theme.
 
 ## Tech Stack
-
 | Component | Technology |
-|---|---|
-| Gateway Runtime | Bun |
-| Gateway Framework | Elysia.js |
-| LLM Backend | Python FastAPI + LiteLLM |
-| Frontend | SolidJS |
-| Frontend Build | Vite |
-| Styling | Tailwind CSS + DaisyUI |
-| Database | SQLite (Drizzle ORM) |
-| API Client | @elysiajs/eden |
-| Agent Events | AG-UI (SSE) |
-| Tool Protocol | MCP |
-| Package Manager | Bun (monorepo workspaces) |
+| :--- | :--- |
+| **Runtime** | Bun (TypeScript) |
+| **Gateway** | Elysia.js |
+| **LLM Backend** | Python FastAPI + LiteLLM |
+| **Frontend** | SolidJS + Vite + Tailwind CSS + DaisyUI |
+| **Database** | SQLite (Drizzle ORM) |
+| **Protocols** | MCP, AG-UI, SSE |
 
 ## Roadmap
-
 ### v0.2 — Upcoming
-- [ ] **CLI Tool** — Terminal-based alternative to the web UI for headless/terminal usage
-- [ ] **HIL Overhaul** — Fix the current human-in-the-loop implementation: reliable suspension/resume, per-agent/per-tool approval config, UI integration improvements
-- [ ] **Enhanced Tool Isolation** — Stricter sandboxing, rate limiting, and guardrails for tool execution
+- [ ] **CLI Tool** — Terminal-based alternative to the web UI.
+- [ ] **HIL Overhaul** — More reliable suspension/resume and per-tool configuration.
+- [ ] **Tool Isolation** — Enhanced sandboxing and stricter VFS boundaries.
 
 ### v0.3 — Planned
-- [ ] **Full VFS Isolation** — Complete virtual filesystem with no escape vectors, chroot-like sandboxing
-- [ ] **Docker Deployment** — Containerized setup with docker-compose for production
-- [ ] **Versioned Configuration** — Migration system for config files between versions
+- [ ] **Full VFS Isolation** — Chroot-like sandboxing with zero escape vectors.
+- [ ] **Docker Deployment** — `docker-compose` for production-ready setup.
+- [ ] **Versioned Config** — Migration system for configuration upgrades.
 
 ### v0.4 — Considered
-- [ ] **Memory Management System** — Long conversation handling: conversation summarization, sliding window context, RAG-based long-term memory recall
-- [ ] **Sub-Agent Message History** — Shared message history between parent and child agents for richer context passing and debugging
+- [ ] **Memory Management** — Summarization and RAG-based long-term recall.
+- [ ] **Shared History** — Better context passing between parent and sub-agents.
 
 ## Contributing
-Contributions are welcome. Fork the repo, create a feature branch, and open a pull request.
+Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
-This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
