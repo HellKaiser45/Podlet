@@ -12,9 +12,9 @@ export async function fetchFiles(runId: string) {
 export function groupFilesByOrigin(files: FileItem[]): FilesByOrigin {
   return files.reduce<FilesByOrigin>(
     (acc, file) => {
-      if (file.vpath.startsWith("workspace://")) {
+      if (file.vpath.startsWith("/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/")) {
         acc.workspace.push(file);
-      } else if (file.vpath.startsWith("artifacts://")) {
+      } else if (file.vpath.startsWith("/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/")) {
         acc.artifact.push(file);
       }
       return acc;

@@ -15,9 +15,9 @@ const DOCUMENT_EXTENSIONS = new Set([
 ])
 
 const SCHEME_RESOLVERS: Record<VirtualScheme, (ctx: { rootDir: string; runId: string; cwd?: string }) => string> = {
-  "workspace://": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "workspace", runId),
-  "artifacts://": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "artifacts", runId),
-  "skills://": ({ rootDir }) => join(rootDir, "skills")
+  "/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "workspace", runId),
+  "/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "artifacts", runId),
+  "/home/hellkaiser/.podlet/skills/": ({ rootDir }) => join(rootDir, "skills")
 };
 
 export class VirtualFileSystem {
@@ -62,7 +62,7 @@ export class VirtualFileSystem {
       }) ?? [];
   }
 
-  async upload(input: FileUpload, scheme: VirtualScheme = 'workspace://'): Promise<FileResponse[]> {
+  async upload(input: FileUpload, scheme: VirtualScheme = '/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/'): Promise<FileResponse[]> {
     const schemeRoot = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
     await mkdir(schemeRoot, { recursive: true });
 
@@ -165,7 +165,7 @@ export class VirtualFileSystem {
     const scheme = VIRTUAL_SCHEMES.find(s => virtual.startsWith(s));
     if (!scheme) throw new Error(`Invalid Path: "${virtual}"`);
 
-    if (scheme === "skills://") {
+    if (scheme === "/home/hellkaiser/.podlet/skills/") {
       const realskillpath = join(this.rootDir, "skills", virtual.slice(scheme.length))
       if (!this.allowedskillslocation.some(allowed => realskillpath === allowed || realskillpath.startsWith(allowed + "/"))) {
         throw new Error(`Unauthorized skill path: "${virtual}"`);
@@ -243,7 +243,7 @@ export class VirtualFileSystem {
   }
 
   public async getContextTree(): Promise<string> {
-    const AGENT_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("skills://" satisfies VirtualScheme));
+    const AGENT_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("/home/hellkaiser/.podlet/skills/" satisfies VirtualScheme));
     const trees = await Promise.all(AGENT_SCHEMES.map(s => this.getSchemeTree(s)));
     const tree = trees.join("\n\n");
     return `
@@ -254,17 +254,17 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 
 **ABSOLUTE RULES — never violated under any circumstance:**
 1. A file not listed in the tree below **does not exist**. Do not reference it, guess its path, or attempt to access it.
-2. All paths MUST begin with \`workspace://\` or \`artifacts://\`. No exceptions.
+2. All paths MUST begin with \`/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/\` or \`/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/\`. No exceptions.
 3. Never emit real filesystem paths (\`/etc\`, \`~\`, \`../\`, URLs, etc.).
-4. \`workspace://\` is **read-only**. Never write to it.
-5. \`artifacts://\` is your **write space**. All files you produce go here.
+4. \`/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/\` is **read-only**. Never write to it.
+5. \`/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/\` is your **write space**. All files you produce go here.
 6. DO NOT TRY TO READ IMAGE FILES LIKE PNGS, GIFS, JPEGS, etc. — they are not supported AND WILL BREAK YOU.
 
 **If a file you need does not appear in the tree: stop and tell the user. Do not speculate about where it might be.**
 
 ## Schemes
-- **workspace://** — User-provided input files. Read-only source of truth.
-- **artifacts://** — Your working output space. Write all produced files here.
+- **/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/** — User-provided input files. Read-only source of truth.
+- **/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/** — Your working output space. Write all produced files here.
 
 ## Complete File Tree
 ${tree}
@@ -305,7 +305,7 @@ ${tree}
         if (this.SHELL_SYSTEM_PATHS.has(cleanToken)) continue;
         const isAllowed = allowedRoots.some(root => cleanToken.startsWith(root));
         if (!isAllowed) {
-          throw new Error(`Unauthorized absolute path: "${cleanToken}". Use relative paths or virtual schemes (workspace://).`);
+          throw new Error(`Unauthorized absolute path: "${cleanToken}". Use relative paths or virtual schemes (/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/).`);
         }
       }
       if (cleanToken.startsWith('~/')) {
@@ -454,7 +454,7 @@ ${tree}
   }
 
   async deleteFolder(runid: string) {
-    const DELETABLE_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("skills://" satisfies VirtualScheme));
+    const DELETABLE_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("/home/hellkaiser/.podlet/skills/" satisfies VirtualScheme));
     for (const scheme of DELETABLE_SCHEMES) {
       const path_to_delete = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: runid })
       await rm(path_to_delete, { recursive: true, force: true });

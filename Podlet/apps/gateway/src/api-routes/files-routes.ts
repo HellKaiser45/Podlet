@@ -36,8 +36,8 @@ export default function filesRoutes(container: AppContainer) {
       '/all/:runid',
       async ({ params }) => {
         const vm = new VirtualFileSystem(container.initConfig.podeletDir, params.runid)
-        const ws = await vm.listFiles('workspace://')
-        const art = await vm.listFiles('artifacts://')
+        const ws = await vm.listFiles('/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/')
+        const art = await vm.listFiles('/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/')
         return ws.concat(art)
       },
       {
