@@ -1,4 +1,3 @@
-
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type {
@@ -12,9 +11,22 @@ export default class MCPManager {
   private filepath: string;
   mcps: Record<string, MCPConfig> = {};
   runningInstances: Record<string, MCPInstance> = {};
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(path: string) {
     this.filepath = join(path, 'mcp.json');
+  }
+
+  private async enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
+    let resolve: () => void;
+    const prev = this.writeQueue;
+    this.writeQueue = new Promise<void>(r => { resolve = r; });
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      resolve!();
+    }
   }
 
   async init() {
@@ -58,7 +70,7 @@ export default class MCPManager {
     for (const mcpId of mcpsIds) {
       servertostart.push(this.startserver(mcpId))
     }
-    Promise.all(servertostart)
+    await Promise.all(servertostart)
   }
 
   async call(toolname: string, toolCallId: string, args: Record<string, unknown>): Promise<LiteLLMMessage> {
@@ -101,5 +113,42 @@ export default class MCPManager {
       }
     }
     return false;
+  }
+
+  async createConfig(name: string, config: MCPConfig): Promise<MCPConfig> {
+    return this.enqueueWrite(async () => {
+      if (this.mcps[name]) {
+        throw new Error('MCP already exists: ' + name);
+      }
+      this.mcps[name] = config;
+      await this.save();
+      return config;
+    });
+  }
+
+  async updateConfig(name: string, partial: Partial<MCPConfig>): Promise<MCPConfig> {
+    return this.enqueueWrite(async () => {
+      if (!this.mcps[name]) {
+        throw new Error('MCP not found: ' + name);
+      }
+      this.mcps[name] = { ...this.mcps[name], ...partial };
+      await this.save();
+      return this.mcps[name];
+    });
+  }
+
+  async deleteConfig(name: string): Promise<void> {
+    return this.enqueueWrite(async () => {
+      if (!this.mcps[name]) {
+        throw new Error('MCP not found: ' + name);
+      }
+      await this.stop(name);
+      delete this.mcps[name];
+      await this.save();
+    });
+  }
+
+  private async save(): Promise<void> {
+    await Bun.file(this.filepath).write(JSON.stringify({ mcpServers: this.mcps }, null, 2));
   }
 }

@@ -8,6 +8,7 @@ import agentsRoutes from './api-routes/agents-routes';
 import modelsRoutes from './api-routes/models-routes';
 import mcpsRoutes from './api-routes/mcps-routes';
 import filesRoutes from './api-routes/files-routes';
+import promptsRoutes from './api-routes/prompts-routes';
 import cors from '@elysiajs/cors';
 import { VirtualFileSystem } from './system/sandbox';
 
@@ -115,6 +116,7 @@ export function createServer(container: AppContainer) {
     .use(agentsRoutes(container))
     .use(modelsRoutes(container))
     .use(mcpsRoutes(container))
+    .use(promptsRoutes(container))
     .use(filesRoutes(container))
     .listen(container.initConfig.appPort);
 }
@@ -123,5 +125,4 @@ export async function cleanup(container: AppContainer) {
   await container.cleanup();
   process.exit(0);
 }
-
 
