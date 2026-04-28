@@ -24,8 +24,12 @@ export default class ModelsManager {
   }
 
   async init() {
-    const { default: mymodels } = await import(this.filepath)
-    this.models = mymodels
+    const file = Bun.file(this.filepath);
+    if (!(await file.exists())) {
+      this.models = {};
+      return;
+    }
+    this.models = await file.json();
   }
 
   load(name: string) {
@@ -65,6 +69,6 @@ export default class ModelsManager {
   }
 
   private async save(): Promise<void> {
-    await Bun.file(this.filepath).write(JSON.stringify(this.models, null, 2));
+    await Bun.write(this.filepath, JSON.stringify(this.models, null, 2));
   }
 }
