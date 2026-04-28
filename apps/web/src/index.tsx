@@ -3,6 +3,7 @@ import { render } from 'solid-js/web';
 import { Router, Route } from '@solidjs/router'
 import 'solid-devtools';
 import App from './App';
+import AgentBuilder from './routes/AgentBuilder';
 import PlaygroundPage from './routes/playground';
 import Sidebar from './components/sidebar';
 import Chat from './components/chat/mainChat';
@@ -18,8 +19,8 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 }
 render(() => (
   <Router root={App} >
-    <Route path={"/playground"
-    }
+    <Route path={"/"} component={AgentBuilder} />
+    <Route path={"/playground"}
       component={PlaygroundPage} />
     <Route path={'/chat/:runid'} component={Chat} />
   </Router>

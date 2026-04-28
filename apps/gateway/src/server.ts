@@ -8,6 +8,7 @@ import agentsRoutes from './api-routes/agents-routes';
 import modelsRoutes from './api-routes/models-routes';
 import mcpsRoutes from './api-routes/mcps-routes';
 import filesRoutes from './api-routes/files-routes';
+import { skillsRoutes } from "./api-routes/skills-routes";
 import promptsRoutes from './api-routes/prompts-routes';
 import cors from '@elysiajs/cors';
 import { VirtualFileSystem } from './system/sandbox';
@@ -37,7 +38,7 @@ export function chatRoutes(container: AppContainer) {
           await stream.close();
           console.log('[Route] Stream closed successfully.');
         } catch (err) {
-          console.error('[Route] ERROR during abort cleanup:', err); // This will catch the .catch() TypeError
+          console.error('[Route] ERROR during abort cleanup:', err);
         }
       });
 
@@ -118,6 +119,7 @@ export function createServer(container: AppContainer) {
     .use(mcpsRoutes(container))
     .use(promptsRoutes(container))
     .use(filesRoutes(container))
+    .use(skillsRoutes(container))
     .listen(container.initConfig.appPort);
 }
 
@@ -125,4 +127,3 @@ export async function cleanup(container: AppContainer) {
   await container.cleanup();
   process.exit(0);
 }
-
