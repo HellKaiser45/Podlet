@@ -121,6 +121,53 @@ async function deleteAgent(agentId: string): Promise<boolean> {
   }
 }
 
+async function fetchPromptContent(name: string): Promise<string> {
+  try {
+    const res = await fetch(BASE + "/prompts/" + encodeURIComponent(name));
+    const json = await res.json();
+    return json.content;
+  } catch {
+    return "";
+  }
+}
+
+async function createPromptApi(name: string, content: string): Promise<boolean> {
+  try {
+    const res = await fetch(BASE + "/prompts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, content }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function updatePromptApi(name: string, content: string): Promise<boolean> {
+  try {
+    const res = await fetch(BASE + "/prompts/" + encodeURIComponent(name), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function deletePromptApi(name: string): Promise<boolean> {
+  try {
+    const res = await fetch(BASE + "/prompts/" + encodeURIComponent(name), {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Signals ─────────────────────────────────────────────────────────────────
 
 const [agents, setAgents] = createSignal<Record<string, Agent>>({});
@@ -133,6 +180,13 @@ const [pendingDelete, setPendingDelete] = createSignal(false);
 const [saveStatus, setSaveStatus] = createSignal<
   "IDLE" | "SAVING" | "SAVED" | "ERROR"
 >("IDLE");
+
+const [promptContent, setPromptContent] = createSignal<string>("");
+const [promptLoading, setPromptLoading] = createSignal<boolean>(false);
+const [promptMode, setPromptMode] = createSignal<
+  "closed" | "viewing" | "editing" | "creating"
+>("closed");
+const [promptSaving, setPromptSaving] = createSignal<boolean>(false);
 
 // ─── Derived Signals ─────────────────────────────────────────────────────────
 
@@ -247,6 +301,70 @@ export async function initiateChat(agentId: string): Promise<void> {
   setSelectedAgent(agentId);
 }
 
+export async function viewPrompt(name: string): Promise<void> {
+  setPromptLoading(true);
+  setPromptMode("viewing");
+  const content = await fetchPromptContent(name);
+  setPromptContent(content);
+  setPromptLoading(false);
+}
+
+export function editPrompt(): void {
+  setPromptMode("editing");
+}
+
+export async function savePromptContent(
+  name: string,
+  content: string
+): Promise<void> {
+  setPromptSaving(true);
+  await updatePromptApi(name, content);
+  setPromptContent(content);
+  setPromptMode("viewing");
+  setPromptSaving(false);
+}
+
+export async function createNewPrompt(
+  name: string,
+  content: string
+): Promise<void> {
+  setPromptSaving(true);
+  const filename = name.endsWith(".md") ? name : name + ".md";
+  await createPromptApi(filename, content);
+  const refreshed = await fetchPrompts();
+  setPrompts(refreshed);
+  await updateAgentField({ system_prompt: filename });
+  setPromptContent(content);
+  setPromptMode("viewing");
+  setPromptSaving(false);
+}
+
+export async function deletePromptAndClear(name: string): Promise<void> {
+  await deletePromptApi(name);
+  const agent = selectedAgent();
+  if (agent && agent.system_prompt === name) {
+    await updateAgentField({ system_prompt: "" });
+  }
+  const refreshed = await fetchPrompts();
+  setPrompts(refreshed);
+  setPromptMode("closed");
+  setPromptContent("");
+}
+
+export function equipPrompt(name: string): void {
+  updateAgentField({ system_prompt: name });
+}
+
+export function closePrompt(): void {
+  setPromptMode("closed");
+  setPromptContent("");
+}
+
+export function startCreatePrompt(): void {
+  setPromptMode("creating");
+  setPromptContent("");
+}
+
 // ─── Exported Signal Getters ─────────────────────────────────────────────────
 
 export {
@@ -258,4 +376,8 @@ export {
   selectedAgentId,
   pendingDelete,
   saveStatus,
+  promptContent,
+  promptLoading,
+  promptMode,
+  promptSaving,
 };

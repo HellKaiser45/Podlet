@@ -61,3 +61,8 @@
   --depth: 0;   /* flat surfaces — the mockup has no elevation/shadows */
   --noise: 0;   /* clean, no texture                                   */
 }
+
+@keyframes gentle-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
