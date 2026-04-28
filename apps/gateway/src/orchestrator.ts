@@ -36,7 +36,7 @@ export class AgentOrchestrator {
         agentHistory = await this.appContainer.historyManager.getByRunId(runId)
       }
       else {
-        await this.appContainer.historyManager.create(runId, [])
+        await this.appContainer.historyManager.create(runId, [message])
       }
     }
     agentHistory.push(message)
@@ -67,7 +67,6 @@ export class AgentOrchestrator {
         runId: input.runId,
         result: res,
       })
-      await this.appContainer.historyManager.append(input.runId, input.message)
       await this.appContainer.historyManager.append(input.runId, res.history[res.history.length - 1])
     }
   }
@@ -110,6 +109,7 @@ export class AgentOrchestrator {
     }
     const loop = new AgentChatLoop(context, this.appContainer, input.agentId)
     const res = await loop.execute()
+
     return res
   }
 

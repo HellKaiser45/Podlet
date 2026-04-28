@@ -17,9 +17,9 @@ try {
 }
 
 const gatewayPort = config.server?.port ?? 3000;
-const pythonPort  = config.server?.pythonPort ?? 8000;
-const webPort     = config.server?.webPort ?? 3002;
-const host        = config.server?.host ?? '127.0.0.1';
+const pythonPort = config.server?.pythonPort ?? 8000;
+const webPort = config.server?.webPort ?? 3002;
+const host = config.server?.host ?? '127.0.0.1';
 
 // ── Track children ───────────────────────────────────────
 
@@ -40,7 +40,7 @@ function start(name: string, cmd: string, args: string[], opts: Record<string, a
 function shutdown() {
   console.log('\n  Shutting down...');
   for (const p of children) {
-    try { p.kill('SIGTERM'); } catch {}
+    try { p.kill('SIGTERM'); } catch { }
   }
   setTimeout(() => process.exit(0), 1500);
 }
@@ -93,7 +93,7 @@ async function main() {
   // 3. Web UI (SolidJS / Vite dev server)
   console.log('  [web] Starting on http://localhost:' + webPort);
   start('web', 'bun', [
-    'run', '--filter', 'web', 'dev',
+    'run', '--filter', '@podlet/web', 'dev',
   ], {
     cwd: repoRoot,
     env: { ...process.env, PORT: String(webPort) },

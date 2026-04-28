@@ -103,7 +103,13 @@ export class VirtualFileSystem {
 
     let files: string[];
     try {
-      files = (await readdir(realPath, { recursive: true })) as string[];
+      const entries = await readdir(realPath, { recursive: true, withFileTypes: true });
+      files = entries
+        .filter(entry => entry.isFile())
+        .map(entry => {
+          const relative = entry.parentPath.slice(realPath.length).replace(/^\//, '');
+          return relative ? `${relative}/${entry.name}` : entry.name;
+        });
     } catch {
       return [];
     }

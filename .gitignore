@@ -263,6 +263,7 @@ celerybeat.pid
 
 # Environments
 .venv
+.venv/
 env/
 venv/
 ENV/
@@ -316,3 +317,5 @@ pyrightconfig.json
 .aider.*
 .aider-*
 .aider/
+
+*.db

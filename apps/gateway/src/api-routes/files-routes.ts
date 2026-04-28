@@ -1,4 +1,4 @@
-import { Elysia, t, file } from 'elysia';
+import { Elysia, t } from 'elysia';
 import AppContainer from '../runtime';
 import { VirtualFileSystem } from '../system/sandbox';
 import { FileUploadSchema } from '../types';

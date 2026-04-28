@@ -7,14 +7,27 @@ export class HistoryCRUDClient {
   private LABEL_MAX_LENGTH = 100;
   constructor(private db: ReturnType<typeof createDB>) { }
 
+
+  private extractPreview(content: LiteLLMMessage['content'], maxLength: number): string | null {
+    if (typeof content === 'string') {
+      return content.slice(0, maxLength);
+    }
+    if (Array.isArray(content)) {
+      const textParts = content
+        .filter(part => part.type === 'text')
+        .map(part => (part as any).text)
+        .join(' ');
+      return textParts.length > 0 ? textParts.slice(0, maxLength) : null;
+    }
+    return null;
+  }
+
   /**
    * Create a new history entry for a run
    */
   async create(runId: string, initialHistory: LiteLLMMessage[] = [], previewLength = 100): Promise<void> {
     const firstContent = initialHistory[0]?.content;
-    const preview = typeof firstContent === 'string'
-      ? firstContent.slice(0, previewLength)
-      : null;
+    const preview = firstContent ? this.extractPreview(firstContent, previewLength) : null;
 
     await this.db.insert(run_history).values({ runId, history: initialHistory, preview });
   }
