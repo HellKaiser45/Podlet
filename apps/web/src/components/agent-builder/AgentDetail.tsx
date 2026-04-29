@@ -1,4 +1,5 @@
 import { type Component, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   selectedAgent,
   selectedAgentId,
@@ -27,6 +28,7 @@ const SectionLabel: Component<{ label: string; count?: number }> = (props) => (
 
 const AgentDetail: Component = () => {
   const agent = selectedAgent;
+  const navigate = useNavigate();
 
   const onDescriptionBlur = (e: FocusEvent) => {
     const val = (e.target as HTMLTextAreaElement).value;
@@ -75,7 +77,11 @@ const AgentDetail: Component = () => {
               class="btn btn-primary btn-sm text-xs"
               onClick={() => {
                 const id = agent()?.agentId;
-                if (id) initiateChat(id);
+                if (id) {
+                  const runId = crypto.randomUUID();
+                  initiateChat(id);
+                  navigate("/chat/" + runId);
+                }
               }}
             >
               INITIATE

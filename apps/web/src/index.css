@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
 @import "tailwindcss";
 @plugin "daisyui";
 @plugin "@tailwindcss/typography";
@@ -60,9 +61,4 @@
   --border: 1px;
   --depth: 0;   /* flat surfaces — the mockup has no elevation/shadows */
   --noise: 0;   /* clean, no texture                                   */
-}
-
-@keyframes gentle-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
 }
