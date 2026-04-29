@@ -67,7 +67,7 @@ export class AgentOrchestrator {
         runId: input.runId,
         result: res,
       })
-      await this.appContainer.historyManager.append(input.runId, res.history[res.history.length - 1])
+      await this.appContainer.historyManager.update(input.runId, res.history)
     }
   }
   /** Main entry point to sort and route depending if we are resuming or not */
