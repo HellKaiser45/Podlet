@@ -50,6 +50,11 @@ export class AgentOrchestrator {
   }
 
   async EndingEventHandler(input: RunAgentInput, res: AgentStackFrame) {
+    const conversationHistory = res.history.filter(m => {
+      if (m.role === 'user') return true
+      if (m.role === 'assistant' && !('tool_calls' in m && (m as any).tool_calls?.length)) return true
+      return false
+    })
     if (res.status === 'error' || res.status === 'running') {
       this.appContainer.eventManager[input.runId].push({
         AgentId: input.agentId,
@@ -67,7 +72,7 @@ export class AgentOrchestrator {
         runId: input.runId,
         result: res,
       })
-      await this.appContainer.historyManager.update(input.runId, res.history)
+      await this.appContainer.historyManager.update(input.runId, conversationHistory)
     }
   }
   /** Main entry point to sort and route depending if we are resuming or not */

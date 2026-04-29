@@ -51,10 +51,12 @@ export default class AppContainer {
   async init() {
     await createfilesystem(this.initConfig.podeletDir)
 
-    await this.mcpManager.init()
-    await this.skillManager.LoadSkillsDefs()
-    await this.modelManager.init()
-    await this.agentManager.loadAll()
+    await Promise.all([
+      this.mcpManager.init(),
+      this.skillManager.LoadSkillsDefs(),
+      this.modelManager.init(),
+      this.agentManager.loadAll(),
+    ])
     // PromptsManager has no async init needed -- it reads files on-demand
 
     if (this.initConfig.enableWatchers) { await this.startwatchers() }
