@@ -1,5 +1,6 @@
 import type { ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageToolCall } from 'openai/resources/chat/completions';
 import type { AgentRequest, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
+import { TokenLimitError } from './types';
 import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
@@ -10,6 +11,29 @@ export class AgentClient {
 
   constructor(appcontainer: AppContainer) {
     this.appContainer = appcontainer;
+  }
+
+  /** Rough token estimation: chars / 4 */
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  /** Estimate tokens for a single message, handling multimodal content */
+  private estimateMessageTokens(msg: LiteLLMMessage): number {
+    if (typeof msg.content === 'string') {
+      return this.estimateTokens(msg.content);
+    }
+    if (Array.isArray(msg.content)) {
+      return (msg.content as any[]).reduce((sum: number, part: any) => {
+        if (part.type === 'text' && part.text) return sum + this.estimateTokens(part.text);
+        if (part.type === 'image_url' && part.image_url?.url) {
+          // Base64 images are very large in the string; rough estimate
+          return sum + Math.max(1000, Math.ceil(part.image_url.url.length / 100));
+        }
+        return sum;
+      }, 0);
+    }
+    return 0;
   }
 
   private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<AgentRequest> {
@@ -31,6 +55,25 @@ export class AgentClient {
 
     const systemPrompt = await this.appContainer.skillManager.injectSkills(agent.skills || [], await this.appContainer.agentManager.getAgentprompt(agentId), vfileSystem);
     const updatedSystemPrompt = await vfileSystem.getContextTree()
+    const fullSystemPrompt = systemPrompt + '\n\n' + updatedSystemPrompt;
+
+    // --- Token budget check ---
+    const contextWindow = model.context_window ?? 128000;
+    const safetyMargin = Math.floor(contextWindow * 0.1);
+    const maxTokens = contextWindow - safetyMargin;
+
+    let totalEstimatedTokens = 0;
+    totalEstimatedTokens += this.estimateTokens(fullSystemPrompt);
+    for (const msg of history) {
+      totalEstimatedTokens += this.estimateMessageTokens(msg);
+    }
+
+    if (totalEstimatedTokens > maxTokens) {
+      throw new TokenLimitError(
+        `Token budget exceeded: estimated ${totalEstimatedTokens} tokens exceeds model limit of ${maxTokens} (context window: ${contextWindow}). History: ${history.length} messages. Consider starting a new conversation.`,
+        'TOKEN_LIMIT_EXCEEDED'
+      );
+    }
 
     return {
       provider: model.provider,
@@ -40,7 +83,7 @@ export class AgentClient {
       temperature: model.temperature ?? undefined,
       max_tokens: model.max_tokens ?? undefined,
       base_url: model.base_url ?? undefined,
-      system_prompt: systemPrompt + `\n\n` + updatedSystemPrompt,
+      system_prompt: fullSystemPrompt,
       history: history as AgentRequest['history'],
       tools: cleanedTools.length > 0 ? cleanedTools : undefined,
       response_format: agent.response_format,
