@@ -31,7 +31,7 @@ export class AgentChatLoop {
     while (true) {
       switch (this.context.currentState) {
         case AgentState.INITIALIZING: {
-          for (const mcp of this.agentDef.mcps || []) { await this.appContainer.mcpManager.startserver(mcp) }
+          await Promise.all((this.agentDef.mcps || []).map(mcp => this.appContainer.mcpManager.startserver(mcp)))
           if (this.context.frame.pending_approvals && this.context.frame.pending_approvals.length > 0) {
             this.transitionTo(AgentState.EXECUTING_TOOLS)
           } else {
@@ -47,6 +47,17 @@ export class AgentChatLoop {
           await this.ToolsNode()
           break;
         case AgentState.AWAITING_APPROVAL:
+          this.appContainer.eventManager[this.context.input.runId].push({
+            AgentId: this.agentDef.agentId,
+            type: "CUSTOM" as any,
+            name: "AWAITING_APPROVAL",
+            data: {
+              pending_approvals: this.context.frame.pending_approvals.filter(
+                ap => ap.approval_status.approval === "pending"
+              )
+            }
+          } as any)
+
           this.context.frame.status = "suspended";
           await this.appContainer.frameCRUD.create(this.context.frame, this.context.input.runId);
           return this.context.frame;
@@ -311,4 +322,3 @@ export class AgentChatLoop {
     this.transitionTo(AgentState.CALLING_LLM);
   }
 }
-

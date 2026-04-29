@@ -18,6 +18,7 @@
   "dependencies": {
     "@elysiajs/openapi": "^1.4.14",
     "officeparser": "^6.0.7",
+    "podlet-monorepo": ".",
     "pptxgenjs": "^4.0.1"
   }
 }

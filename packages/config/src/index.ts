@@ -25,6 +25,7 @@ async function loadConfig(): Promise<AppConfig> {
   const logLevel = configFile.logging?.level ?? 'info';
   const maxConcurrentAgents = configFile.features?.max_concurrent_agents ?? 5;
   const corsOrigin = configFile.features?.cors_origin ?? 'http://localhost:3002';
+  const safemode = configFile.features?.safemode ?? false;
 
   return {
     podeletDir,
@@ -32,7 +33,7 @@ async function loadConfig(): Promise<AppConfig> {
     llmApiUrl: process.env.LLM_API_URL ?? ('http://localhost:' + pythonPort),
     appPort,
     enableWatchers: true,
-    safemode: false,
+    safemode,
     pythonPort,
     webPort,
     logLevel,

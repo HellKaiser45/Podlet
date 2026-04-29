@@ -5,6 +5,7 @@ import Conversation from "./conversation";
 import { createEffect, Show } from "solid-js";
 import IconWrapper from "../ui/iconWrapper";
 import MiniPodletIcon from "../ui/icons/miniPodlet";
+import ApprovalPanel from "./ApprovalPanel";
 
 
 
@@ -64,11 +65,22 @@ export default function Chat() {
                 </div>
               </div>
             </div>
-            <div class="shrink-0 w-full p-4 border-t border-base-content/10 bg-base-100 z-10">
-              <div class="max-w-3xl mx-auto flex justify-center">
-                <ChatInputs />
+
+            <Show when={state.status === 'awaiting_approval'}>
+              <div class="shrink-0 w-full px-4 pt-2">
+                <div class="max-w-3xl mx-auto">
+                  <ApprovalPanel />
+                </div>
               </div>
-            </div>
+            </Show>
+
+            <Show when={state.status !== 'awaiting_approval'}>
+              <div class="shrink-0 w-full p-4 border-t border-base-content/10 bg-base-100 z-10">
+                <div class="max-w-3xl mx-auto flex justify-center">
+                  <ChatInputs />
+                </div>
+              </div>
+            </Show>
           </div>
         </Show>
 
