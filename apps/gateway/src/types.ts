@@ -31,7 +31,7 @@ export const RunAgentInputSchema = t.Object({
   decision: t.Optional(t.Record(t.String(), UserDecisionSchema)),
 })
 
-// - - - - - - - - 
+// - - - - - - - 
 export const FileUploadSchema = t.Object({
   runId: t.String(),
   cwd: t.Optional(t.String()),
@@ -47,7 +47,6 @@ export type FileResponse = {
   id: string;
   type: "text" | "image"
 }
-
 // ===========================
 // CUSTOM ERRORS
 // ==========================
@@ -58,15 +57,6 @@ export class AgentToolSuspended extends Error {
   ) {
     super(`Child agent ${agentId} suspended (frame: ${childFrameId})`);
     this.name = "AgentToolSuspended";
-  }
-}
-
-export class TokenLimitError extends Error {
-  public readonly code: string;
-  constructor(message: string, code: string = 'TOKEN_LIMIT_EXCEEDED') {
-    super(message);
-    this.name = 'TokenLimitError';
-    this.code = code;
   }
 }
 
@@ -163,8 +153,6 @@ export interface ModelConfig {
   temperature?: number;
   max_tokens?: number;
   base_url?: string;
-  /** Model context window in tokens. Default: 128000 */
-  context_window?: number;
 }
 
 /** ~/.podelet/agents/*.json */
@@ -197,7 +185,7 @@ export interface MCPServerConfig {
 //===================================================================================
 // File system related types
 // ==================================================================================
-export const VIRTUAL_SCHEMES = ["/home/hellkaiser/.podlet/workspace/858d132d-4d20-47be-8c99-8cf8de52e1db/", "/home/hellkaiser/.podlet/artifacts/858d132d-4d20-47be-8c99-8cf8de52e1db/", "/home/hellkaiser/.podlet/skills/"] as const;
+export const VIRTUAL_SCHEMES = ["workspace://", "artifacts://", "skills://"] as const;
 export type VirtualScheme = (typeof VIRTUAL_SCHEMES)[number];
 
 

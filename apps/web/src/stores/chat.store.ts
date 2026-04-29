@@ -4,7 +4,6 @@ import { api } from "../utils/api/share.api";
 import { createSignal } from "solid-js";
 import { attachments } from "./attachements.store";
 import { selectedAgent } from "./chatInput.store";
-import { estimateTotalTokens, MAX_USER_TOKEN_BUDGET } from "../utils/token-estimator";
 
 export const [runId, setRunId] = createSignal<string>();
 
@@ -112,23 +111,6 @@ export async function callstreamandhandleevents(message: string) {
   const agent = selectedAgent()
   if (!agent) throw new Error('agent not selected')
 
-  // --- Token budget pre-check ---
-  const tokenEstimate = await estimateTotalTokens(message, attachments().map(a => a.file));
-  if (tokenEstimate.total > MAX_USER_TOKEN_BUDGET) {
-    // Remove the user message we already pushed
-    setState(produce(conv => {
-      conv.messages.pop();
-    }));
-    setState({
-      status: 'idle',
-      error: `Message too large: estimated ~${tokenEstimate.total.toLocaleString()} tokens (max: ${MAX_USER_TOKEN_BUDGET.toLocaleString()}). ` +
-        `Message: ${tokenEstimate.breakdown.message.toLocaleString()} tokens, ` +
-        `Attachments: ${tokenEstimate.breakdown.attachments.toLocaleString()} tokens. ` +
-        `Try shortening your message or removing large attachments.`
-    });
-    return;
-  }
-
   const { data, error } = await api.chat.post({
     message: messagetosend,
     runId: id,
@@ -217,13 +199,6 @@ export async function callstreamandhandleevents(message: string) {
           }
           break;
         }
-        case "RUN_ERROR": {
-          setState({
-            status: 'idle',
-            error: chunk.data.message || 'An error occurred during the agent run'
-          });
-          break;
-        }
         default:
           break;
       }
@@ -290,13 +265,6 @@ export async function resumeWithDecision(decisions: Record<string, { approved: b
               pendingApprovals: chunk.data.data.pending_approvals
             });
           }
-          break;
-        }
-        case "RUN_ERROR": {
-          setState({
-            status: 'idle',
-            error: chunk.data.message || 'An error occurred during the agent run'
-          });
           break;
         }
         default:

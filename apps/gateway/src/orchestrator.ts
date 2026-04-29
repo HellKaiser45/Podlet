@@ -1,7 +1,7 @@
 import { EventType } from "@ag-ui/core";
 import { AgentChatLoop } from "./agent-loop/chat-loop";
 import AppContainer from "./runtime";
-import { AgentStackFrame, RunAgentInput, UserDecision, ExecutionContext, AgentState, LiteLLMMessage, TokenLimitError } from "./types";
+import { AgentStackFrame, RunAgentInput, UserDecision, ExecutionContext, AgentState, LiteLLMMessage } from "./types";
 import { randomUUIDv7 } from "bun";
 import { VirtualFileSystem } from "./system/sandbox";
 
@@ -75,9 +75,9 @@ export class AgentOrchestrator {
       await this.appContainer.historyManager.update(input.runId, conversationHistory)
     }
   }
-
   /** Main entry point to sort and route depending if we are resuming or not */
   async executeAgent(input: RunAgentInput) {
+
     this.appContainer.eventManager[input.runId].push({
       AgentId: input.agentId,
       type: EventType.RUN_STARTED,
@@ -85,40 +85,17 @@ export class AgentOrchestrator {
       runId: input.runId,
     })
 
-    try {
-      const existing_checkpoint = await this.appContainer.frameCRUD.getByRunId(input.runId)
-      let output_frame: AgentStackFrame
+    const existing_checkpoint = await this.appContainer.frameCRUD.getByRunId(input.runId)
 
-      if (Object.keys(existing_checkpoint).length !== 0) {
-        output_frame = await this.resume(input)
-      } else {
-        output_frame = await this.startNewExecution(input)
-      }
-      await this.EndingEventHandler(input, output_frame)
-      return output_frame
-    } catch (error) {
-      const message = error instanceof TokenLimitError
-        ? error.message
-        : `Agent execution failed: ${error instanceof Error ? error.message : String(error)}`;
-      const code = error instanceof TokenLimitError ? error.code : 'RUN_FAILED';
+    let output_frame: AgentStackFrame
 
-      this.appContainer.eventManager[input.runId].push({
-        AgentId: input.agentId,
-        type: EventType.RUN_ERROR,
-        message,
-        code,
-        threadId: input.threadId,
-        runId: input.runId,
-      })
-
-      return {
-        frame_id: randomUUIDv7(),
-        agent_id: input.agentId,
-        history: [],
-        pending_approvals: [],
-        status: "error" as const,
-      }
+    if (Object.keys(existing_checkpoint).length !== 0) {
+      output_frame = await this.resume(input)
+    } else {
+      output_frame = await this.startNewExecution(input)
     }
+    await this.EndingEventHandler(input, output_frame)
+    return output_frame
   }
 
   /** Start a new execution for the agent */
@@ -201,12 +178,14 @@ export class AgentOrchestrator {
 
     return await this.restartLeaves(input);
   }
-
   /** Apply decision to the frame */
   private applyDecisionToFrame(
     frame: AgentStackFrame,
     decisions: Record<string, UserDecision>
   ) {
+    /** No reference to the parameters of the class but we mutate directly the object
+      * provided in parameter 
+    */
     for (const approval of frame.pending_approvals) {
       const decision = decisions[approval.tool_call.id]
       if (decision) {
