@@ -484,7 +484,8 @@ export class CoreToolsManager {
       // Resolve virtual paths → real paths so the shell gets a real cwd
       const resolvedArgs = this.vfs.resolveArgs(args);
       const result = await tool.execute(resolvedArgs);
-      return { role: 'tool', tool_call_id: toolCallId, content: JSON.stringify(result) };
+      const raw = JSON.stringify(result);
+      return { role: 'tool', tool_call_id: toolCallId, content: this.vfs.sanitizeErrorMessage(raw) };
     }
 
     // ── All other tools: virtual paths passed directly ────────────────────
