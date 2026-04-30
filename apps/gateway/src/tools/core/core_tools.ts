@@ -6,6 +6,7 @@ interface ITool {
   name: string;
   definition: ChatCompletionTool;
   execute(args: Record<string, unknown>): Promise<unknown>;
+  setVfs?(vfs: VirtualFileSystem): void;
 }
 
 const UNREADABLE_EXTENSIONS = new Set([
@@ -20,23 +21,33 @@ const BINARY_EXTENSIONS = new Set([
   '.mp4', '.mp3', '.wav', '.ogg', '.zip', '.tar', '.gz', '.bin', '.exe',
 ]);
 
-class ReadFileTool {
+// ---------------------------------------------------------------------------
+// ReadFileTool
+// ---------------------------------------------------------------------------
+
+class ReadFileTool implements ITool {
   readonly name = 'read_file';
+  private vfs?: VirtualFileSystem;
+
   readonly definition: ChatCompletionTool = {
     type: 'function',
     function: {
       name: 'read_file',
-      description: `Read the contents of one or more files from the virtual filesystem in an effective manner with BUN + async parallelization.\nReturns a JSON object mapping each absolute file path to its contents.\nDO NOT use this tool for binary or media files (.png, .jpg, .pdf, .woff, .mp4, etc.) — it only handles text-based files.`,
+      description: [
+        'ALWAYS use this tool to read file contents.',
+        'NEVER use cat, head, tail, grep, or any shell command to read files — use this tool instead.',
+        '',
+        'Reads one or more files from the virtual filesystem in parallel.',
+        'Returns a JSON object mapping each virtual path to its text content.',
+        'DO NOT use for binary/media files (.png, .jpg, .pdf, .woff, .mp4, etc.).',
+      ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
           paths: {
             type: 'array',
-            description: 'One or more virtual file path to read.',
-            items: {
-              type: 'string',
-              description: 'A virtual file path (e.g. workspace://... , artifacts://...)',
-            },
+            description: 'One or more virtual file paths to read (e.g. workspace://src/main.ts, artifacts://out/report.md)',
+            items: { type: 'string' },
             minItems: 1,
           },
         },
@@ -45,28 +56,38 @@ class ReadFileTool {
     },
   };
 
-  async execute(args: Record<string, unknown>): Promise<string[]> {
-    const paths = args.paths as string[] | undefined;
-    if (!paths || paths.length === 0) {
-      throw new Error('Missing required argument: paths');
-    }
+  setVfs(vfs: VirtualFileSystem) { this.vfs = vfs; }
 
-    return Promise.all(
-      paths.map(async p => {
+  async execute(args: Record<string, unknown>): Promise<Record<string, string>> {
+    const paths = args.paths as string[] | undefined;
+    if (!paths || paths.length === 0) throw new Error('Missing required argument: paths');
+    if (!this.vfs) throw new Error('VirtualFileSystem not initialized');
+
+    const entries = await Promise.all(
+      paths.map(async (p): Promise<[string, string]> => {
         const ext = p.slice(p.lastIndexOf('.')).toLowerCase();
         if (UNREADABLE_EXTENSIONS.has(ext)) {
-          return `error: cannot read binary file "${p}" (${ext})`;
+          return [p, `error: cannot read binary file "${p}" (${ext})`];
         }
-        const exists = await Bun.file(p).exists();
-        return exists ? Bun.file(p).text() : `error: file not found`;
+        try {
+          const realPath = this.vfs!.virtualToReal(p);
+          const file = Bun.file(realPath);
+          if (!(await file.exists())) return [p, `error: file not found`];
+          return [p, await file.text()];
+        } catch (err) {
+          return [p, `error: ${this.vfs!.sanitizeErrorMessage(err)}`];
+        }
       })
     );
+
+    return Object.fromEntries(entries);
   }
 }
 
-/**
- * Result of a shell command execution
- */
+// ---------------------------------------------------------------------------
+// ShellTool
+// ---------------------------------------------------------------------------
+
 export interface ShellExecutionResult {
   success: boolean;
   stdout: string;
@@ -76,68 +97,53 @@ export interface ShellExecutionResult {
   duration: number;
 }
 
-/**
- * Shell command execution tool
- */
-class ShellTool {
+class ShellTool implements ITool {
   readonly name = 'execute_shell';
+
   readonly definition: ChatCompletionTool = {
     type: 'function',
     function: {
       name: 'execute_shell',
-      description: `
-Execute a shell command and return its output. Suitable for short-running commands that complete and exit.
-
-RECOMMENDED USAGE:
-- Read files: cat file.txt, head -n 20 file.txt, tail -f logs.txt
-- File operations: cp, mv, mkdir, rm
-- Text processing: sed, awk, cut, sort
-- Git operations: git status, git log, git diff
-- Package info: npm list, bun pm ls
-- working_directory is the sandbox root — all relative paths resolve inside it
-- Inside command, ALWAYS use relative paths: mkdir -p temp, not mkdir -p /temp
-- Absolute paths like /temp, /var, /home bypass the sandbox entirely and are blocked
-- Think of working_directory as your "/" — navigate relatively from there
-
-NOT SUITABLE FOR:
-- Long-running servers (npm run dev, python server.py)
-- Interactive commands (vim, nano, ssh)
-- Watch modes (npm run watch, nodemon)
-- Background processes (use systemd/pm2 instead)
-
-IMPORTANT: Shell output may contain real filesystem paths. Always continue using virtual paths (workspace://, artifacts://) in subsequent tool calls. Do not copy real paths from shell output.
-
-Commands have a 30-second default timeout. Use shorter timeouts for quick checks, longer (up to 300s) for builds/tests.`,
+      description: [
+        'Execute a shell command for builds, tests, installs, git operations, and other executable tasks.',
+        'NEVER use this to read or write files — use read_file, write_file, and apply_diff instead.',
+        'NEVER use cat, echo, tee, sed, awk, patch, or similar to handle file content.',
+        '',
+        'RULES:',
+        '- working_directory must be a virtual path (workspace://, artifacts://, skills://)',
+        '- Inside commands, use RELATIVE paths only — working_directory is treated as your root',
+        '- Never use absolute paths like /tmp, /home, /var — they bypass the sandbox',
+        '- Shell output may leak real filesystem paths — always continue using virtual paths in follow-up tool calls',
+        '',
+        'NOT FOR: long-running servers, interactive commands (vim/ssh), watch modes, background processes.',
+        'Timeout: default 30s, max 300s.',
+      ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
           command: {
             type: 'string',
-            description: 'The shell command to execute. Will be run with bash -c "command"'
+            description: 'Shell command to execute with bash -c',
           },
           working_directory: {
             type: 'string',
-            description: 'Working directory for command execution. Must be a virtual path (workspace://, artifacts://, skills://).'
+            description: 'Virtual path for the working directory (workspace://, artifacts://, skills://)',
           },
           timeout: {
             type: 'number',
-            description: 'Timeout in seconds. Default: 30, Min: 1, Max: 300. Commands exceeding timeout will be terminated.',
+            description: 'Timeout in seconds. Default: 30, Min: 1, Max: 300.',
             minimum: 1,
-            maximum: 300
-          }
+            maximum: 300,
+          },
         },
-        required: ['command', 'working_directory']
+        required: ['command', 'working_directory'],
       },
-    }
+    },
   };
 
+  // Shell does not need VFS directly (manager resolves args before passing)
   async execute(args: Record<string, any>): Promise<ShellExecutionResult> {
-    const {
-      command,
-      working_directory,
-      timeout = 30
-    } = args;
-
+    const { command, working_directory, timeout = 30 } = args;
     const startTime = Date.now();
     let timedOut = false;
 
@@ -155,10 +161,7 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
         },
       });
 
-      const killTimer = setTimeout(() => {
-        timedOut = true;
-        proc.kill();
-      }, timeout * 1000);
+      const killTimer = setTimeout(() => { timedOut = true; proc.kill(); }, timeout * 1000);
 
       const [stdout, stderr, exitCode] = await Promise.all([
         new Response(proc.stdout).text().catch(() => ''),
@@ -167,59 +170,52 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
       ]);
 
       clearTimeout(killTimer);
-
       const duration = Date.now() - startTime;
 
       if (timedOut) {
-        return {
-          success: false,
-          stdout,
-          stderr: stderr + `\n\n[Command timed out after ${timeout}s and was terminated]`,
-          exitCode: null,
-          timedOut: true,
-          duration,
-        };
+        return { success: false, stdout, stderr: stderr + `\n\n[Command timed out after ${timeout}s and was terminated]`, exitCode: null, timedOut: true, duration };
       }
 
-      return {
-        success: exitCode === 0,
-        stdout,
-        stderr,
-        exitCode,
-        timedOut: false,
-        duration,
-      };
-
+      return { success: exitCode === 0, stdout, stderr, exitCode, timedOut: false, duration };
     } catch (error) {
       return {
-        success: false,
-        stdout: '',
+        success: false, stdout: '',
         stderr: error instanceof Error ? error.message : String(error),
-        exitCode: null,
-        timedOut,
-        duration: Date.now() - startTime,
+        exitCode: null, timedOut, duration: Date.now() - startTime,
       };
     }
   }
 }
 
-class WriteFileTool {
+// ---------------------------------------------------------------------------
+// WriteFileTool
+// ---------------------------------------------------------------------------
+
+class WriteFileTool implements ITool {
   readonly name = 'write_file';
+  private vfs?: VirtualFileSystem;
+
   readonly definition: ChatCompletionTool = {
     type: 'function',
     function: {
       name: 'write_file',
-      description: `Create or overwrite a file in the virtual filesystem. Use for creating new files or complete rewrites of small/medium files. For targeted edits to existing files, use apply_diff instead. Only writes to artifacts:// — workspace:// is read-only.`,
+      description: [
+        'ALWAYS use this tool to create new files or completely overwrite existing ones.',
+        'NEVER use echo, tee, printf, heredoc, or any shell command to write file content.',
+        '',
+        'Only writes to artifacts:// — workspace:// is read-only.',
+        'For small targeted edits to existing files, use apply_diff instead (more token-efficient).',
+      ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Virtual path where the file should be written. Must be artifacts:// (e.g. artifacts://src/main.ts). workspace:// is read-only.',
+            description: 'Virtual path in artifacts:// (e.g. artifacts://src/main.ts). No leading slash after the scheme.',
           },
           content: {
             type: 'string',
-            description: 'The complete file content to write.',
+            description: 'Complete file content to write.',
           },
         },
         required: ['path', 'content'],
@@ -227,26 +223,31 @@ class WriteFileTool {
     },
   };
 
-  constructor(private vfs: VirtualFileSystem) { }
+  constructor(vfs?: VirtualFileSystem) { this.vfs = vfs; }
+  setVfs(vfs: VirtualFileSystem) { this.vfs = vfs; }
 
   async execute(args: Record<string, unknown>): Promise<{ success: boolean; path: string; bytes: number; error?: string }> {
+    if (!this.vfs) return { success: false, path: '', bytes: 0, error: 'VirtualFileSystem not initialized' };
+
     const path = args.path as string | undefined;
     const content = args.content as string | undefined;
 
-    if (!path || !content) {
+    if (!path || content === undefined) {
       return { success: false, path: path ?? '', bytes: 0, error: 'Missing required arguments: path and content' };
     }
 
-    if (BINARY_EXTENSIONS.has(path.slice(path.lastIndexOf('.')).toLowerCase())) {
-      return { success: false, path, bytes: 0, error: `Cannot write binary file (${path.slice(path.lastIndexOf('.'))}). Use execute_shell for binary operations.` };
+    const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+    if (BINARY_EXTENSIONS.has(ext)) {
+      return { success: false, path, bytes: 0, error: `Cannot write binary file (${ext}). Use execute_shell for binary operations.` };
     }
 
-    if (content.length > 100000) {
-      return { success: false, path, bytes: 0, error: `Content too large (${content.length} chars). Maximum is 100,000 characters. Use apply_diff for targeted edits or execute_shell for large files.` };
+    if (content.length > 100_000) {
+      return { success: false, path, bytes: 0, error: `Content too large (${content.length} chars, max 100,000). Use apply_diff for targeted edits or execute_shell for large files.` };
     }
 
     try {
       await this.vfs.atomicWrite(path, content);
+      // Return the original virtual path, not any resolved real path
       return { success: true, path, bytes: Buffer.byteLength(content) };
     } catch (err) {
       return { success: false, path, bytes: 0, error: this.vfs.sanitizeErrorMessage(err) };
@@ -254,42 +255,53 @@ class WriteFileTool {
   }
 }
 
-interface DiffOperation {
-  search: string;
-  replace: string;
-}
+// ---------------------------------------------------------------------------
+// ApplyDiffTool
+// ---------------------------------------------------------------------------
+
+interface DiffOperation { search: string; replace: string; }
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-class ApplyDiffTool {
+class ApplyDiffTool implements ITool {
   readonly name = 'apply_diff';
+  private vfs?: VirtualFileSystem;
+
   readonly definition: ChatCompletionTool = {
     type: 'function',
     function: {
       name: 'apply_diff',
-      description: `Apply targeted search-and-replace edits to an existing file in the virtual filesystem. More token-efficient than write_file for small changes. Each diff operation finds an exact text match and replaces it. Provide enough context lines in 'search' to ensure a unique match. Only works on artifacts:// files.`,
+      description: [
+        'ALWAYS use this tool to make targeted edits to existing files.',
+        'NEVER use sed, awk, patch, or shell commands to edit file content.',
+        '',
+        'More token-efficient than write_file for small changes.',
+        'Finds exact text matches and replaces them sequentially.',
+        'Include 3+ surrounding context lines in "search" to guarantee a unique match.',
+        'Only works on artifacts:// files.',
+      ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Virtual path of the file to edit. Must be artifacts:// (e.g. artifacts://src/main.ts).',
+            description: 'Virtual path in artifacts:// (e.g. artifacts://src/main.ts).',
           },
           diffs: {
             type: 'array',
-            description: 'List of search-and-replace operations to apply sequentially.',
+            description: 'List of search-and-replace operations applied sequentially.',
             items: {
               type: 'object',
               properties: {
                 search: {
                   type: 'string',
-                  description: 'Exact text to find in the file. Include 3+ lines of surrounding context for unique matching.',
+                  description: 'Exact text to find in the file. Include 3+ surrounding context lines for a unique match.',
                 },
                 replace: {
                   type: 'string',
-                  description: 'The replacement text.',
+                  description: 'Replacement text.',
                 },
               },
               required: ['search', 'replace'],
@@ -302,9 +314,12 @@ class ApplyDiffTool {
     },
   };
 
-  constructor(private vfs: VirtualFileSystem) { }
+  constructor(vfs?: VirtualFileSystem) { this.vfs = vfs; }
+  setVfs(vfs: VirtualFileSystem) { this.vfs = vfs; }
 
   async execute(args: Record<string, unknown>): Promise<{ success: boolean; path: string; changes: number; errors: string[] }> {
+    if (!this.vfs) return { success: false, path: '', changes: 0, errors: ['VirtualFileSystem not initialized'] };
+
     const path = args.path as string | undefined;
     const diffs = args.diffs as DiffOperation[] | undefined;
 
@@ -323,44 +338,54 @@ class ApplyDiffTool {
         const count = (result.match(new RegExp(escapeRegex(search), 'g')) || []).length;
 
         if (count === 0) {
-          errors.push(`Diff ${i + 1}: Search text not found in file. Verify the exact text exists.`);
+          errors.push(`Diff ${i + 1}: Search text not found. Verify the exact text exists in the file.`);
           continue;
         }
         if (count > 1) {
-          errors.push(`Diff ${i + 1}: Ambiguous match — found ${count} occurrences. Provide more surrounding context lines for a unique match.`);
+          errors.push(`Diff ${i + 1}: Ambiguous — found ${count} occurrences. Add more surrounding context lines for a unique match.`);
           continue;
         }
+
         result = result.replace(search, replace);
         changes++;
       }
 
-      if (changes > 0) {
-        await this.vfs.atomicWrite(path, result);
-      }
-
+      if (changes > 0) await this.vfs.atomicWrite(path, result);
+      // Return the original virtual path
       return { success: errors.length === 0, path, changes, errors };
     } catch (err) {
-      return { success: false, path, changes: 0, errors: [this.vfs.sanitizeErrorMessage(err)] };
+      return { success: false, path: path ?? '', changes: 0, errors: [this.vfs.sanitizeErrorMessage(err)] };
     }
   }
 }
 
-class StageFilesTool {
+// ---------------------------------------------------------------------------
+// StageFilesTool
+// ---------------------------------------------------------------------------
+
+class StageFilesTool implements ITool {
   readonly name = 'stage_files';
+  private vfs?: VirtualFileSystem;
+
   readonly definition: ChatCompletionTool = {
     type: 'function',
     function: {
       name: 'stage_files',
-      description: `Copy files from the read-only workspace:// to the writable artifacts:// directory, preserving directory structure. Use this BEFORE modifying any workspace file. This creates a working copy in artifacts:// that you can freely edit with write_file or apply_diff. If a file already exists in artifacts:// (previously staged), it is skipped. You can stage individual files or entire directories.`,
+      description: [
+        'Copy files from read-only workspace:// to writable artifacts://, preserving directory structure.',
+        'ALWAYS call this before editing any workspace:// file — it creates the editable copy you can then modify with write_file or apply_diff.',
+        'Files already staged in artifacts:// are skipped safely.',
+        'Accepts individual files or entire directories.',
+      ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
           paths: {
             type: 'array',
-            description: 'List of workspace:// paths to copy to artifacts://. Can be files or directories.',
+            description: 'workspace:// paths to copy to artifacts:// (files or directories)',
             items: {
               type: 'string',
-              description: 'A workspace:// path (e.g. workspace://src/components/App.tsx or workspace://src/components/)',
+              description: 'e.g. workspace://src/components/App.tsx or workspace://src/',
             },
             minItems: 1,
           },
@@ -370,66 +395,62 @@ class StageFilesTool {
     },
   };
 
-  constructor(private vfs: VirtualFileSystem) { }
+  constructor(vfs?: VirtualFileSystem) { this.vfs = vfs; }
+  setVfs(vfs: VirtualFileSystem) { this.vfs = vfs; }
 
   async execute(args: Record<string, unknown>): Promise<{ staged: string[]; skipped: string[]; errors: string[] }> {
+    if (!this.vfs) return { staged: [], skipped: [], errors: ['VirtualFileSystem not initialized'] };
     const paths = args.paths as string[] | undefined;
-    if (!paths || paths.length === 0) {
-      return { staged: [], skipped: [], errors: ['Missing required argument: paths'] };
-    }
-
+    if (!paths || paths.length === 0) return { staged: [], skipped: [], errors: ['Missing required argument: paths'] };
     return this.vfs.stageFiles(paths);
   }
 }
 
-/**
- * Core Tools Manager
- * Manages built-in tools that are always available
- */
+// ---------------------------------------------------------------------------
+// CoreToolsManager
+// ---------------------------------------------------------------------------
+
 export class CoreToolsManager {
-  private tools: Map<string, ITool> = new Map();
+  private readonly tools: Map<string, ITool>;
   private vfs?: VirtualFileSystem;
 
+  // Kept as named fields so setVirtualFileSystem can call setVfs on each
+  private readonly readFileTool = new ReadFileTool();
+  private readonly shellTool = new ShellTool();
+  private readonly writeFileTool = new WriteFileTool();
+  private readonly applyDiffTool = new ApplyDiffTool();
+  private readonly stageFilesTool = new StageFilesTool();
+
   constructor(virtualFileSystem?: VirtualFileSystem) {
-    this.vfs = virtualFileSystem;
+    // Always register ALL tools so getToolDefinitions() works without VFS
+    this.tools = new Map<string, ITool>([
+      [this.readFileTool.name, this.readFileTool],
+      [this.shellTool.name, this.shellTool],
+      [this.writeFileTool.name, this.writeFileTool],
+      [this.applyDiffTool.name, this.applyDiffTool],
+      [this.stageFilesTool.name, this.stageFilesTool],
+    ]);
 
-    const readFileTool = new ReadFileTool();
-    this.tools.set(readFileTool.name, readFileTool);
+    if (virtualFileSystem) this.setVirtualFileSystem(virtualFileSystem);
+  }
 
-    const shellTool = new ShellTool();
-    this.tools.set(shellTool.name, shellTool);
-
-    if (this.vfs) {
-      const writeFileTool = new WriteFileTool(this.vfs);
-      this.tools.set(writeFileTool.name, writeFileTool);
-
-      const applyDiffTool = new ApplyDiffTool(this.vfs);
-      this.tools.set(applyDiffTool.name, applyDiffTool);
-
-      const stageFilesTool = new StageFilesTool(this.vfs);
-      this.tools.set(stageFilesTool.name, stageFilesTool);
+  /**
+   * Inject VFS after construction.
+   * Must be called before executing any VFS-dependent tool.
+   */
+  setVirtualFileSystem(vfs: VirtualFileSystem): void {
+    this.vfs = vfs;
+    for (const tool of this.tools.values()) {
+      tool.setVfs?.(vfs);
     }
   }
 
-  isCoreTool(toolName: string): boolean {
-    return this.tools.has(toolName);
-  }
-
-  getToolDefinitions(): ChatCompletionTool[] {
-    return Array.from(this.tools.values()).map(tool => tool.definition);
-  }
-
-  getToolNames(): string[] {
-    return Array.from(this.tools.keys());
-  }
-
-  filterCoreTools(toolNames: string[]): string[] {
-    return toolNames.filter(name => this.isCoreTool(name));
-  }
-
-  filterNonCoreTools(toolNames: string[]): string[] {
-    return toolNames.filter(name => !this.isCoreTool(name));
-  }
+  isCoreTool(toolName: string): boolean { return this.tools.has(toolName); }
+  getToolDefinitions(): ChatCompletionTool[] { return [...this.tools.values()].map(t => t.definition); }
+  getToolNames(): string[] { return [...this.tools.keys()]; }
+  filterCoreTools(toolNames: string[]): string[] { return toolNames.filter(n => this.isCoreTool(n)); }
+  filterNonCoreTools(toolNames: string[]): string[] { return toolNames.filter(n => !this.isCoreTool(n)); }
+  hasCoreTools(toolNames: string[]): boolean { return toolNames.some(n => this.isCoreTool(n)); }
 
   async execute(
     toolName: string,
@@ -437,83 +458,80 @@ export class CoreToolsManager {
     args: Record<string, unknown>
   ): Promise<ChatCompletionToolMessageParam> {
     const tool = this.tools.get(toolName);
-    if (!this.vfs) throw new Error('Virtual File System not initialized');
+    if (!tool) return this.makeError(toolCallId, `Core tool not found: ${toolName}`);
 
-    if (toolName !== 'execute_shell') {
-      try {
-        this.validateAllPaths(args);
-      } catch (err) {
-        return {
-          role: "tool",
-          tool_call_id: toolCallId,
-          content: `Security violation: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-    }
-
-    // Pre-validate working_directory for shell tool
+    // ── Shell: special handling ────────────────────────────────────────────
+    // Shell needs real paths for cwd, so we resolve args for it specifically.
+    // It also does not touch the VFS, so no sanitization is needed.
     if (toolName === 'execute_shell') {
       const wd = args.working_directory as string | undefined;
-      if (!wd || wd.trim() === '') {
-        return {
-          role: "tool",
-          tool_call_id: toolCallId,
-          content: JSON.stringify({
-            success: false,
-            stdout: '',
-            stderr: 'working_directory is required. Provide a virtual path (workspace://, artifacts://, skills://).',
-            exitCode: null,
-            timedOut: false,
-            duration: 0,
-          }),
-        };
+
+      if (!wd?.trim()) {
+        return this.makeShellError(toolCallId,
+          'working_directory is required. Provide a virtual path (workspace://, artifacts://, skills://).'
+        );
       }
+
       const validSchemes = ['workspace://', 'artifacts://', 'skills://'];
       if (!validSchemes.some(s => wd.startsWith(s))) {
-        return {
-          role: "tool",
-          tool_call_id: toolCallId,
-          content: JSON.stringify({
-            success: false,
-            stdout: '',
-            stderr: `working_directory must be a virtual path (workspace://, artifacts://, skills://). Received: "${wd}"`,
-            exitCode: null,
-            timedOut: false,
-            duration: 0,
-          }),
-        };
+        return this.makeShellError(toolCallId,
+          `working_directory must start with workspace://, artifacts://, or skills://. Received: "${wd}"`
+        );
       }
+
+      if (!this.vfs) return this.makeShellError(toolCallId, 'VirtualFileSystem not initialized');
+
+      // Resolve virtual paths → real paths so the shell gets a real cwd
+      const resolvedArgs = this.vfs.resolveArgs(args);
+      const result = await tool.execute(resolvedArgs);
+      return { role: 'tool', tool_call_id: toolCallId, content: JSON.stringify(result) };
     }
 
-    const resolvedArgs = this.vfs.resolveArgs(args);
+    // ── All other tools: virtual paths passed directly ────────────────────
+    // Tools resolve paths internally via VFS, so:
+    //   (a) no real-path resolution before execute()
+    //   (b) no real paths in results → no leaks
+    // We still sanitize the full output JSON as a safety net.
 
-    if (!tool) {
-      return {
-        role: "tool",
-        tool_call_id: toolCallId,
-        content: `Core tool not found: ${toolName}`,
-      };
+    try {
+      this.validateAllPaths(args);
+    } catch (err) {
+      return this.makeError(toolCallId,
+        `Security violation: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
-    const result = await tool.execute(resolvedArgs);
+    const result = await tool.execute(args);
+
+    // Sanitize the entire JSON output to catch any accidental real-path leaks
+    const raw = JSON.stringify(result);
+    const sanitized = this.vfs ? this.vfs.sanitizeErrorMessage(raw) : raw;
+
+    return { role: 'tool', tool_call_id: toolCallId, content: sanitized };
+  }
+
+  private makeError(toolCallId: string, message: string): ChatCompletionToolMessageParam {
+    return { role: 'tool', tool_call_id: toolCallId, content: message };
+  }
+
+  private makeShellError(toolCallId: string, stderr: string): ChatCompletionToolMessageParam {
     return {
-      role: "tool",
+      role: 'tool',
       tool_call_id: toolCallId,
-      content: JSON.stringify(result),
+      content: JSON.stringify({
+        success: false, stdout: '', stderr,
+        exitCode: null, timedOut: false, duration: 0,
+      }),
     };
   }
 
   private validateAllPaths(value: unknown): void {
     if (typeof value === 'string') {
-      this.vfs!.validatePaths(value);
+      this.vfs?.validatePaths(value);
     } else if (Array.isArray(value)) {
       for (const item of value) this.validateAllPaths(item);
     } else if (value !== null && typeof value === 'object') {
       for (const v of Object.values(value)) this.validateAllPaths(v);
     }
-  }
-
-  hasCoreTools(toolNames: string[]): boolean {
-    return toolNames.some(name => this.isCoreTool(name));
   }
 }

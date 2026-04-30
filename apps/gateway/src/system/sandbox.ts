@@ -1,7 +1,7 @@
 import { join, extname, dirname } from "path";
 import { readdir, unlink, mkdir, rmdir, rm, stat, rename, copyFile, chmod } from "node:fs/promises";
 import type { FileResponse, FileUpload, VirtualScheme } from "../types";
-import { VIRTUAL_SCHEMES, } from "../types";
+import { VIRTUAL_SCHEMES } from "../types";
 import SkillsManager from "./skills";
 import { ChatCompletionContentPart, ChatCompletionUserMessageParam } from "openai/resources.js";
 import { type OfficeContentNode, type HeadingMetadata, type ListMetadata, parseOffice } from 'officeparser'
@@ -12,21 +12,20 @@ const DOCUMENT_EXTENSIONS = new Set([
   'pptx', 'odp',
   'xlsx', 'xls', 'ods',
   'pdf',
-])
+]);
 
 const SCHEME_RESOLVERS: Record<VirtualScheme, (ctx: { rootDir: string; runId: string; cwd?: string }) => string> = {
   "workspace://": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "workspace", runId),
   "artifacts://": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "artifacts", runId),
-  "skills://": ({ rootDir }) => join(rootDir, "skills")
+  "skills://": ({ rootDir }) => join(rootDir, "skills"),
 };
 
 export class VirtualFileSystem {
   private readonly rootDir: string;
   private readonly runId: string;
   private readonly cwd?: string;
-  private readonly allowedskillslocation: string[]
+  private readonly allowedSkillsLocation: string[];
   private writeQueue: Promise<void> = Promise.resolve();
-
 
   private readonly ignoreList = new Set([
     // Version control
@@ -48,71 +47,80 @@ export class VirtualFileSystem {
     // Misc
     ".cache", "coverage", ".turbo", "tmp", "temp", "logs",
   ]);
+
   private readonly ignoreExtensions = new Set([
     ".min.js", ".min.css", ".map", ".lock", ".log",
   ]);
 
-  constructor(rootDir: string, runId: string, cwd?: string, skillmanager?: SkillsManager, skills: string[] = []) {
+  constructor(
+    rootDir: string,
+    runId: string,
+    cwd?: string,
+    skillmanager?: SkillsManager,
+    skills: string[] = []
+  ) {
     this.rootDir = rootDir;
     this.runId = runId;
     this.cwd = cwd;
-    this.allowedskillslocation = skills
+    this.allowedSkillsLocation = skills
       .flatMap(name => {
         const skill = skillmanager?.availableSkills[name];
         return skill ? [skill.location] : [];
-      }) ?? [];
+      });
   }
+
+  // ---------------------------------------------------------------------------
+  // Upload
+  // ---------------------------------------------------------------------------
 
   async upload(input: FileUpload, scheme: VirtualScheme = 'workspace://'): Promise<FileResponse[]> {
     const schemeRoot = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
     await mkdir(schemeRoot, { recursive: true });
 
     const results = await Promise.all(input.files.map(async (file) => {
-      const buffer = await file.arrayBuffer()
-      const resolved = await this.resolveAttachment(buffer, file.type, file.name)
-
+      const buffer = await file.arrayBuffer();
+      const resolved = await this.resolveAttachment(buffer, file.type, file.name);
       if (!resolved) {
-        console.warn(`Skipping unsupported file: ${file.name} (${file.type})`)
-        return null
+        console.warn(`Skipping unsupported file: ${file.name} (${file.type})`);
+        return null;
       }
 
-      let storedFilename: string
-
+      let storedFilename: string;
       if (resolved.type === 'image') {
-        storedFilename = file.name
-        await Bun.write(join(schemeRoot, storedFilename), file)
+        storedFilename = file.name;
+        await Bun.write(join(schemeRoot, storedFilename), file);
       } else if (resolved.type === 'text') {
-        storedFilename = file.name
-        await Bun.write(join(schemeRoot, storedFilename), resolved.content)
+        storedFilename = file.name;
+        await Bun.write(join(schemeRoot, storedFilename), resolved.content);
       } else {
-        storedFilename = file.name.replace(/\.[^.]+$/, '.md')
-        await Bun.write(join(schemeRoot, storedFilename), resolved.content)
+        storedFilename = file.name.replace(/\.[^.]+$/, '.md');
+        await Bun.write(join(schemeRoot, storedFilename), resolved.content);
       }
 
       return {
         name: storedFilename,
         vpath: scheme + storedFilename,
-        id: Buffer.from(scheme + storedFilename).toString('base64url')
-      }
-    }))
+        id: Buffer.from(scheme + storedFilename).toString('base64url'),
+      };
+    }));
 
-    // Set workspace files to read-only at OS level
+    // Make workspace files read-only at the OS level
     if (scheme === 'workspace://') {
       await Promise.all(results.filter(r => r !== null).map(async (r) => {
         const filePath = join(schemeRoot, r!.name);
         try {
           const info = await stat(filePath);
-          if (info.isDirectory()) {
-            await chmod(filePath, 0o555);
-          } else {
-            await chmod(filePath, 0o444);
-          }
+          await chmod(filePath, info.isDirectory() ? 0o555 : 0o444);
         } catch { /* best effort */ }
       }));
     }
 
-    return results.filter((r): r is FileResponse => r !== null)
+    return results.filter((r): r is FileResponse => r !== null);
   }
+
+  // ---------------------------------------------------------------------------
+  // List files
+  // ---------------------------------------------------------------------------
 
   async listFiles(scheme: VirtualScheme): Promise<FileResponse[]> {
     const realPath = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
@@ -133,19 +141,19 @@ export class VirtualFileSystem {
 
     return this.filterFiles(files).sort().map(file => {
       const vpath = scheme + file;
-
-      // Determine type based on extension
       const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(file);
-      const type = isImage ? 'image' : 'text';
-
       return {
         name: file,
         vpath,
         id: Buffer.from(vpath).toString('base64url'),
-        type
+        type: isImage ? 'image' : 'text',
       };
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Path resolution
+  // ---------------------------------------------------------------------------
 
   resolveArgs(args: Record<string, unknown>): Record<string, unknown> {
     const resolveValue = (value: unknown): unknown => {
@@ -155,15 +163,14 @@ export class VirtualFileSystem {
         return this.resolveArgs(value as Record<string, unknown>);
       return value;
     };
-
     return Object.fromEntries(
       Object.entries(args).map(([key, value]) => [key, resolveValue(value)])
     );
   }
 
   /**
-   * Scan a string that potentially contains a virtual
-   * resolve it to a real absolute path.
+   * Replace all virtual scheme prefixes in a string with their real directory paths.
+   * Used only for the shell tool, which needs real cwd.
    */
   resolveInString(input: string): string {
     const schemePattern = VIRTUAL_SCHEMES.map(s => s.replace("//", "\\/\\/")).join("|");
@@ -175,27 +182,35 @@ export class VirtualFileSystem {
   }
 
   /**
-   * convert a virtual path to a real absolute path.
+   * Convert a virtual path to a real absolute path.
+   *
+
+   * `artifacts://file.md` (correct form), rather than producing an
+   * absolute path that bypasses the sandbox root.
    */
-  virtualToReal(virtual: string): string {
+  public virtualToReal(virtual: string): string {
     const scheme = VIRTUAL_SCHEMES.find(s => virtual.startsWith(s));
     if (!scheme) throw new Error(`Invalid Path: "${virtual}"`);
 
     if (scheme === "skills://") {
-      const realskillpath = join(this.rootDir, "skills", virtual.slice(scheme.length))
-      if (!this.allowedskillslocation.some(allowed => realskillpath === allowed || realskillpath.startsWith(allowed + "/"))) {
+      const realSkillPath = join(this.rootDir, "skills", virtual.slice(scheme.length));
+      if (!this.allowedSkillsLocation.some(
+        allowed => realSkillPath === allowed || realSkillPath.startsWith(allowed + "/")
+      )) {
         throw new Error(`Unauthorized skill path: "${virtual}"`);
       }
     }
 
-    const rel = virtual.slice(scheme.length);
-
-    return join(SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd }), rel)
+    // Strip any leading slashes from the relative portion.
+    // This prevents `artifacts:///foo` from resolving to `/foo` (absolute path)
+    // instead of `<artifactsRoot>/foo`.
+    const rel = virtual.slice(scheme.length).replace(/^\/+/, '');
+    return join(SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd }), rel);
   }
 
   /**
-   * Replace real filesystem paths in error messages with virtual equivalents.
-   * Safe for error messages (unlike file content) — these are short OS strings.
+   * Replace real filesystem paths in a string with their virtual equivalents.
+   * Safe for error messages and JSON output — short OS strings, not file content.
    */
   public sanitizeErrorMessage(error: unknown): string {
     const msg = error instanceof Error ? error.message : String(error);
@@ -214,44 +229,57 @@ export class VirtualFileSystem {
   }
 
   /**
-   * Translates a real absolute path back to a virtual path.
+   * Translate a real absolute path back to a virtual path.
    */
   realToVirtual(realPath: string): string {
-
     for (const scheme of VIRTUAL_SCHEMES) {
       const root = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
       if (realPath.startsWith(root)) {
-        return scheme + realPath.slice(root.length + 1)
+        return scheme + realPath.slice(root.length + 1);
       }
     }
     throw new Error(`Path outside virtual scope: "${realPath}"`);
   }
 
-
-  // --- Optimized Read Operations ---
+  // ---------------------------------------------------------------------------
+  // Read operations
+  // ---------------------------------------------------------------------------
 
   /**
-   * Returns a BunFile instance 
-   * Does not read file contents until .text()/.blob() etc is called.
+   * Returns a BunFile instance. Does not read until .text()/.blob() is called.
    */
   public getFile(fileId: string) {
     const virtualPath = Buffer.from(fileId, 'base64url').toString();
     const realPath = this.virtualToReal(virtualPath);
-    return Bun.file(realPath)
+    return Bun.file(realPath);
+  }
+
+  public async readFileText(fileId: string): Promise<string> {
+    return this.getFile(fileId).text();
   }
 
   /**
-   * Reads text content from a file.
+   * Read file text by virtual path (used by tools that receive virtual paths).
    */
-  public async readFileText(fileId: string): Promise<string> {
-    const file = this.getFile(fileId);
-    return await file.text();
+  public async readFileTextByVPath(virtualPath: string): Promise<string> {
+    try {
+      const realPath = this.virtualToReal(virtualPath);
+      const file = Bun.file(realPath);
+      if (!(await file.exists())) throw new Error('File not found: ' + virtualPath);
+      return file.text();
+    } catch (err) {
+      throw new Error(this.sanitizeErrorMessage(err));
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Write / update / delete
+  // ---------------------------------------------------------------------------
 
   public async updateFile(fileId: string, content: string | Blob | ArrayBuffer): Promise<void> {
     const virtualPath = Buffer.from(fileId, 'base64url').toString();
     if (virtualPath.startsWith('workspace://')) {
-      throw new Error('Cannot write to workspace:// - it is read-only. Use stage_files to copy to artifacts:// first.');
+      throw new Error('Cannot write to workspace:// — it is read-only. Use stage_files to copy to artifacts:// first.');
     }
     const realPath = this.virtualToReal(virtualPath);
     await Bun.write(realPath, content);
@@ -264,31 +292,13 @@ export class VirtualFileSystem {
   }
 
   /**
-   * Read file text by virtual path (used by tools that receive virtual paths).
-   */
-  public async readFileTextByVPath(virtualPath: string): Promise<string> {
-    try {
-      const realPath = this.virtualToReal(virtualPath);
-      const file = Bun.file(realPath);
-      if (!(await file.exists())) {
-        throw new Error('File not found: ' + virtualPath);
-      }
-      return file.text();
-    } catch (err) {
-      throw new Error(this.sanitizeErrorMessage(err));
-    }
-  }
-
-  // --- Atomic Write ---
-
-  /**
-   * Atomically write content to a virtual path. Uses temp file + rename.
-   * Serializes writes via a queue to prevent concurrent writes.
+   * Atomically write content to a virtual path.
+   * Uses a temp file + rename. Serializes writes via a queue.
    * Refuses workspace:// paths.
    */
   public async atomicWrite(virtualPath: string, content: string): Promise<void> {
     if (virtualPath.startsWith('workspace://')) {
-      throw new Error('Cannot write to workspace:// - it is read-only. Use stage_files to copy to artifacts:// first.');
+      throw new Error('Cannot write to workspace:// — it is read-only. Use stage_files to copy to artifacts:// first.');
     }
 
     return new Promise((resolve, reject) => {
@@ -297,21 +307,20 @@ export class VirtualFileSystem {
           const realPath = this.virtualToReal(virtualPath);
           const dir = dirname(realPath);
           await mkdir(dir, { recursive: true });
-          const tmpPath = realPath + '.tmp.' + Date.now();
+          const tmpPath = `${realPath}.tmp.${Date.now()}`;
           await Bun.write(tmpPath, content);
           await rename(tmpPath, realPath);
           resolve();
         } catch (err) {
-          const sanitized = err instanceof Error
-            ? new Error(this.sanitizeErrorMessage(err))
-            : new Error(this.sanitizeErrorMessage(err));
-          reject(sanitized);
+          reject(new Error(this.sanitizeErrorMessage(err)));
         }
       });
     });
   }
 
-  // --- Staging ---
+  // ---------------------------------------------------------------------------
+  // Staging
+  // ---------------------------------------------------------------------------
 
   /**
    * Copy files from workspace:// to artifacts://, preserving directory structure.
@@ -325,16 +334,14 @@ export class VirtualFileSystem {
     for (const vpath of virtualPaths) {
       try {
         if (!vpath.startsWith('workspace://')) {
-          errors.push('Not a workspace:// path: ' + vpath);
+          errors.push(`Not a workspace:// path: ${vpath}`);
           continue;
         }
 
         const rel = vpath.slice('workspace://'.length);
         const artifactVPath = 'artifacts://' + rel;
-
         const srcReal = this.virtualToReal(vpath);
         const dstReal = this.virtualToReal(artifactVPath);
-
         const srcInfo = await stat(srcReal);
 
         if (srcInfo.isDirectory()) {
@@ -342,9 +349,9 @@ export class VirtualFileSystem {
           for (const entry of entries) {
             if (!entry.isFile()) continue;
             const entryRel = entry.parentPath.slice(srcReal.length).replace(/^\//, '');
-            const entryFile = entryRel ? entryRel + '/' + entry.name : entry.name;
+            const entryFile = entryRel ? `${entryRel}/${entry.name}` : entry.name;
             const dstFile = join(dstReal, entryFile);
-            const dstVPath = 'artifacts://' + (rel ? rel + '/' : '') + entryFile;
+            const dstVPath = `artifacts://${rel ? rel + '/' : ''}${entryFile}`;
 
             if (await Bun.file(dstFile).exists()) {
               skipped.push(dstVPath);
@@ -364,14 +371,17 @@ export class VirtualFileSystem {
           }
         }
       } catch (err) {
-        errors.push(vpath + ': ' + this.sanitizeErrorMessage(err));
+        errors.push(`${vpath}: ${this.sanitizeErrorMessage(err)}`);
       }
     }
 
     return { staged, skipped, errors };
   }
 
-  // --- Optimized Tree Generation ---
+  // ---------------------------------------------------------------------------
+  // Filesystem tree / context
+  // ---------------------------------------------------------------------------
+
   private async getSchemeTree(scheme: VirtualScheme): Promise<string> {
     const realPath = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
     await mkdir(realPath, { recursive: true });
@@ -385,7 +395,6 @@ export class VirtualFileSystem {
 
     const filtered = this.filterFiles(files);
     if (filtered.length === 0) return `${scheme}\n  (empty)`;
-
     return `${scheme}\n` + filtered.sort().map(f => `  ${f}`).join("\n");
   }
 
@@ -393,10 +402,10 @@ export class VirtualFileSystem {
     const AGENT_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("skills://" satisfies VirtualScheme));
     const trees = await Promise.all(AGENT_SCHEMES.map(s => this.getSchemeTree(s)));
     const tree = trees.join("\n\n");
+
     return `
 <filesystem_context>
 ## Virtual Filesystem
-
 You operate in a fully isolated virtual filesystem. The file tree below is **exhaustive and complete** — it contains every file that exists. There are no hidden files, no other directories, and no external sources to check.
 
 **ABSOLUTE RULES — never violated under any circumstance:**
@@ -405,64 +414,63 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 3. Never emit real filesystem paths (\`/etc\`, \`~\`, \`../\`, URLs, etc.).
 4. \`workspace://\` is **read-only**. Never write to it.
 5. \`artifacts://\` is your **write space**. All files you produce go here.
-6. DO NOT TRY TO READ IMAGE FILES LIKE PNGS, GIFS, JPEGS, etc. — they are not supported AND WILL BREAK YOU.
+6. DO NOT read image files (.png, .gif, .jpeg, etc.) — they will break your context.
 
-**If a file you need does not appear in the tree: stop and tell the user. Do not speculate about where it might be.**
+**If a file you need does not appear in the tree: stop and tell the user. Do not speculate.**
+
+## Tool usage — mandatory rules
+
+| Goal                              | Tool to use       | NEVER use                          |
+|-----------------------------------|-------------------|------------------------------------|
+| Read a file                       | read_file         | cat, head, tail, grep, shell       |
+| Create or fully overwrite a file  | write_file        | echo, tee, printf, heredoc, shell  |
+| Edit part of an existing file     | apply_diff        | sed, awk, patch, shell             |
+| Copy workspace file for editing   | stage_files       | cp via shell                       |
+| Build, test, install, git         | execute_shell     | —                                  |
 
 ## Schemes
 - **workspace://** — User-provided input files. Read-only source of truth.
 - **artifacts://** — Your working output space. Write all produced files here.
 
-## Working with Files
-
-1. Read files with read_file (workspace://, artifacts://, skills://)
-2. Before modifying workspace files, call stage_files to copy them to artifacts://
-3. Create new files with write_file (artifacts:// only)
-4. Edit existing files with apply_diff (artifacts:// only)
-5. Use execute_shell for commands (tests, builds, installs)
-
-workspace:// is read-only at the OS level. All modifications happen in artifacts://.
-Shell output may contain real filesystem paths - ignore them and continue using virtual paths.
+## Path format
+Paths must be \`scheme://relative/path/to/file\` — no leading slash after the scheme.
+- Correct:   \`artifacts://report.md\`
+- Incorrect: \`artifacts:///report.md\` ← triple slash, will fail
 
 ## Complete File Tree
 ${tree}
 </filesystem_context>`.trim();
   }
 
+  // ---------------------------------------------------------------------------
+  // Path validation
+  // ---------------------------------------------------------------------------
+
   private readonly SHELL_SYSTEM_PATHS = new Set([
     '/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr',
   ]);
 
   validatePaths(input: string): void {
-    // FIX 1: Strip ANY heredoc marker, not just 'EOF'
-    // Captures the marker name from << 'MARKER' or << MARKER, then strips until ^MARKER$
-    const strippedHeredoc = input.replace(
-      /<<\s*['"]?(\w+)['"]?.*?^\1$/gms,
-      ''
-    );
+    // Strip heredoc body before any path checks
+    const strippedHeredoc = input.replace(/<<\s*['"]?(\w+)['"]?.*?^\1$/gms, '');
 
-    // Path traversal check (unchanged)
     if (/(\.\.[/\\])|(\/\.\.)/.test(strippedHeredoc)) {
       throw new Error(`Path traversal (..) is strictly forbidden.`);
     }
 
-    // FIX 2: Only block URLs that appear as standalone tokens, not fragments in string literals.
-    // Require https?:// or ftp:// to be preceded by a word boundary or quote/equals,
-    // so 'tps://' or concatenated strings don't false-positive.
     if (/(?<![a-z])https?:\/\/|(?<![a-z])ftp:\/\//.test(strippedHeredoc)) {
       throw new Error(`Web URLs are not allowed.`);
     }
 
-    // Absolute path check (unchanged)
     const tokens = strippedHeredoc.split(/\s+/);
     const ctx = { rootDir: this.rootDir, runId: this.runId, cwd: this.cwd };
     const allowedRoots = VIRTUAL_SCHEMES.map(s => SCHEME_RESOLVERS[s](ctx));
-    for (let token of tokens) {
+
+    for (const token of tokens) {
       const cleanToken = token.replace(/['"]/g, '');
       if (/^\/[a-zA-Z0-9_~]/.test(cleanToken)) {
         if (this.SHELL_SYSTEM_PATHS.has(cleanToken)) continue;
-        const isAllowed = allowedRoots.some(root => cleanToken.startsWith(root));
-        if (!isAllowed) {
+        if (!allowedRoots.some(root => cleanToken.startsWith(root))) {
           throw new Error(`Unauthorized absolute path: "${cleanToken}". Use relative paths or virtual schemes (workspace://).`);
         }
       }
@@ -471,7 +479,6 @@ ${tree}
       }
     }
 
-    // FIX 2 continued: guard scheme detection the same way
     const usedSchemes = strippedHeredoc.match(/(?<![a-z])[a-z]+:\/\//g) ?? [];
     for (const scheme of usedSchemes) {
       if (!VIRTUAL_SCHEMES.includes(scheme as VirtualScheme)) {
@@ -479,6 +486,10 @@ ${tree}
       }
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // File filtering
+  // ---------------------------------------------------------------------------
 
   private filterFiles(files: string[]): string[] {
     return files.filter(file => {
@@ -489,21 +500,23 @@ ${tree}
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Attachment resolution
+  // ---------------------------------------------------------------------------
+
   async getAttachmentCategory(
     mime: string,
     filename: string,
     buffer: ArrayBuffer
   ): Promise<'image' | 'text' | 'document' | null> {
-    if (mime.startsWith('image/')) return 'image'
-
-    const ext = filename.split('.').pop()?.toLowerCase() ?? ''
-    if (DOCUMENT_EXTENSIONS.has(ext)) return 'document'
-
+    if (mime.startsWith('image/')) return 'image';
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    if (DOCUMENT_EXTENSIONS.has(ext)) return 'document';
     try {
-      new TextDecoder('utf-8', { fatal: true }).decode(buffer)
-      return 'text'
+      new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+      return 'text';
     } catch {
-      return null
+      return null;
     }
   }
 
@@ -511,19 +524,17 @@ ${tree}
     return nodes.map(node => {
       switch (node.type) {
         case 'heading': {
-          const meta = node.metadata as HeadingMetadata | undefined
-          const level = '#'.repeat(meta?.level ?? 1)
-          return `${level} ${node.text}`
+          const meta = node.metadata as HeadingMetadata | undefined;
+          const level = '#'.repeat(meta?.level ?? 1);
+          return `${level} ${node.text}`;
         }
         case 'paragraph':
-          return node.text
+          return node.text;
         case 'list': {
-          const meta = node.metadata as ListMetadata | undefined
-          const prefix = meta?.listType === 'ordered'
-            ? `${(meta.itemIndex ?? 0) + 1}.`
-            : '-'
-          const indent = '  '.repeat(meta?.indentation ?? 0)
-          return `${indent}${prefix} ${node.text}`
+          const meta = node.metadata as ListMetadata | undefined;
+          const prefix = meta?.listType === 'ordered' ? `${(meta.itemIndex ?? 0) + 1}.` : '-';
+          const indent = '  '.repeat(meta?.indentation ?? 0);
+          return `${indent}${prefix} ${node.text}`;
         }
         case 'table': {
           const rows = (node.children ?? [])
@@ -533,23 +544,23 @@ ${tree}
                 .filter(c => c.type === 'cell')
                 .map(cell => (cell.text ?? '').replace(/\|/g, '\\|').trim())
                 .join(' | ')
-            )
-          if (rows.length === 0) return ''
-          const separator = rows[0].split(' | ').map(() => '---').join(' | ')
+            );
+          if (rows.length === 0) return '';
+          const separator = rows[0].split(' | ').map(() => '---').join(' | ');
           return [
             `| ${rows[0]} |`,
             `| ${separator} |`,
-            ...rows.slice(1).map(r => `| ${r} |`)
-          ].join('\n')
+            ...rows.slice(1).map(r => `| ${r} |`),
+          ].join('\n');
         }
         case 'note':
-          return `> ${node.text}`
+          return `> ${node.text}`;
         default:
-          return node.text ?? ''
+          return node.text ?? '';
       }
     })
       .filter(Boolean)
-      .join('\n\n')
+      .join('\n\n');
   }
 
   async resolveAttachment(
@@ -562,60 +573,53 @@ ${tree}
     | { type: 'document'; content: string }
     | null
   > {
-    const category = await this.getAttachmentCategory(mime, filename, buffer)
-
+    const category = await this.getAttachmentCategory(mime, filename, buffer);
     switch (category) {
-      case 'image': {
-        return { type: 'image', content: buffer }
-      }
-      case 'text': {
-        const text = new TextDecoder().decode(buffer)
-        return { type: 'text', content: text }
-      }
+      case 'image': return { type: 'image', content: buffer };
+      case 'text': return { type: 'text', content: new TextDecoder().decode(buffer) };
       case 'document': {
-        const ast = await parseOffice(Buffer.from(buffer))
-        const markdown = this.astToMarkdown(ast.content)
-        return { type: 'text', content: `${markdown}` }
+        const ast = await parseOffice(Buffer.from(buffer));
+        return { type: 'text', content: this.astToMarkdown(ast.content) };
       }
-      case null:
-        return null
+      case null: return null;
     }
   }
 
-  async generateContentBlock(fileIDs: string[], message: ChatCompletionUserMessageParam): Promise<ChatCompletionUserMessageParam> {
-    const Pcontentblock = fileIDs.map(async (fileID): Promise<ChatCompletionContentPart> => {
-      const file = this.getFile(fileID)
+  // ---------------------------------------------------------------------------
+  // Content block generation
+  // ---------------------------------------------------------------------------
+
+  async generateContentBlock(
+    fileIDs: string[],
+    message: ChatCompletionUserMessageParam
+  ): Promise<ChatCompletionUserMessageParam> {
+    const parts = await Promise.all(fileIDs.map(async (fileID): Promise<ChatCompletionContentPart> => {
+      const file = this.getFile(fileID);
       if (file.type.startsWith('image/')) {
         return {
           type: 'image_url',
-          image_url: {
-            url: `data:${file.type};base64,${Buffer.from(await file.arrayBuffer()).toString('base64')}`
-          }
-        }
-      } else {
-        return {
-          type: 'text',
-          text: await file.text()
-        }
+          image_url: { url: `data:${file.type};base64,${Buffer.from(await file.arrayBuffer()).toString('base64')}` },
+        };
       }
-    })
-    const contentblock = await Promise.all(Pcontentblock)
-    const initcontentblock: ChatCompletionContentPart[] = Array.isArray(message.content) ? message.content : [{
-      type: 'text',
-      text: message.content
-    }]
+      return { type: 'text', text: await file.text() };
+    }));
 
-    return {
-      role: "user",
-      content: [...contentblock, ...initcontentblock]
-    }
+    const initContent: ChatCompletionContentPart[] = Array.isArray(message.content)
+      ? message.content
+      : [{ type: 'text', text: message.content as string }];
+
+    return { role: 'user', content: [...parts, ...initContent] };
   }
+
+  // ---------------------------------------------------------------------------
+  // Cleanup / export
+  // ---------------------------------------------------------------------------
 
   async deleteFolder(runid: string) {
     const DELETABLE_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("skills://" satisfies VirtualScheme));
     for (const scheme of DELETABLE_SCHEMES) {
-      const path_to_delete = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: runid })
-      await rm(path_to_delete, { recursive: true, force: true });
+      const pathToDelete = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: runid });
+      await rm(pathToDelete, { recursive: true, force: true });
     }
   }
 
@@ -631,8 +635,7 @@ ${tree}
       if (!entry.isFile()) continue;
       const relative = entry.parentPath.slice(realPath.length).replace(/^\//, '');
       const filePath = relative ? `${relative}/${entry.name}` : entry.name;
-      const fullPath = join(realPath, filePath);
-      const content = await Bun.file(fullPath).arrayBuffer();
+      const content = await Bun.file(join(realPath, filePath)).arrayBuffer();
       files[filePath] = new Uint8Array(content);
     }
 
