@@ -4,6 +4,7 @@ import { api } from "../utils/api/share.api";
 import { createSignal } from "solid-js";
 import { attachments } from "./attachements.store";
 import { selectedAgent } from "./chatInput.store";
+import { revalidate } from "@solidjs/router";
 
 export const [runId, setRunId] = createSignal<string>();
 
@@ -199,6 +200,11 @@ export async function callstreamandhandleevents(message: string) {
           }
           break;
         }
+        case "RUN_ERROR": {
+          const errMsg = chunk.data.message || 'An error occurred during the agent run';
+          setState({ error: errMsg });
+          break;
+        }
         default:
           break;
       }
@@ -210,6 +216,7 @@ export async function callstreamandhandleevents(message: string) {
     if (state.status !== 'awaiting_approval') {
       setState({ status: 'idle' });
     }
+    revalidate('runIds');
   }
 }
 
@@ -267,6 +274,11 @@ export async function resumeWithDecision(decisions: Record<string, { approved: b
           }
           break;
         }
+        case "RUN_ERROR": {
+          const errMsg = chunk.data.message || 'An error occurred during the agent run';
+          setState({ error: errMsg });
+          break;
+        }
         default:
           break;
       }
@@ -278,5 +290,6 @@ export async function resumeWithDecision(decisions: Record<string, { approved: b
     if (state.status !== 'awaiting_approval') {
       setState({ status: 'idle' });
     }
+    revalidate('runIds');
   }
 }
