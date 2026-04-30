@@ -15,7 +15,7 @@ export class AgentClient {
   private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<AgentRequest> {
     const agent = this.appContainer.agentManager.agents[agentId];
     const model = this.appContainer.modelManager.models[agent.model];
-    const coreTools = new CoreToolsManager();
+    const coreTools = new CoreToolsManager(vfileSystem);
     const tools = [
       ...this.appContainer.mcpManager.getTools(agent.mcps || []),
       ...coreTools.getToolDefinitions(),
