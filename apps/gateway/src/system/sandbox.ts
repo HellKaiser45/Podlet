@@ -1,5 +1,5 @@
-import { join, extname } from "path";
-import { readdir, unlink, mkdir, rmdir, rm, stat } from "node:fs/promises";
+import { join, extname, dirname } from "path";
+import { readdir, unlink, mkdir, rmdir, rm, stat, rename, copyFile, chmod } from "node:fs/promises";
 import type { FileResponse, FileUpload, VirtualScheme } from "../types";
 import { VIRTUAL_SCHEMES, } from "../types";
 import SkillsManager from "./skills";
@@ -25,6 +25,7 @@ export class VirtualFileSystem {
   private readonly runId: string;
   private readonly cwd?: string;
   private readonly allowedskillslocation: string[]
+  private writeQueue: Promise<void> = Promise.resolve();
 
 
   private readonly ignoreList = new Set([
@@ -94,6 +95,21 @@ export class VirtualFileSystem {
         id: Buffer.from(scheme + storedFilename).toString('base64url')
       }
     }))
+
+    // Set workspace files to read-only at OS level
+    if (scheme === 'workspace://') {
+      await Promise.all(results.filter(r => r !== null).map(async (r) => {
+        const filePath = join(schemeRoot, r!.name);
+        try {
+          const info = await stat(filePath);
+          if (info.isDirectory()) {
+            await chmod(filePath, 0o555);
+          } else {
+            await chmod(filePath, 0o444);
+          }
+        } catch { /* best effort */ }
+      }));
+    }
 
     return results.filter((r): r is FileResponse => r !== null)
   }
@@ -214,6 +230,9 @@ export class VirtualFileSystem {
 
   public async updateFile(fileId: string, content: string | Blob | ArrayBuffer): Promise<void> {
     const virtualPath = Buffer.from(fileId, 'base64url').toString();
+    if (virtualPath.startsWith('workspace://')) {
+      throw new Error('Cannot write to workspace:// - it is read-only. Use stage_files to copy to artifacts:// first.');
+    }
     const realPath = this.virtualToReal(virtualPath);
     await Bun.write(realPath, content);
   }
@@ -222,6 +241,107 @@ export class VirtualFileSystem {
     const virtualPath = Buffer.from(fileId, 'base64url').toString();
     const realPath = this.virtualToReal(virtualPath);
     await unlink(realPath);
+  }
+
+  /**
+   * Read file text by virtual path (used by tools that receive virtual paths).
+   */
+  public async readFileTextByVPath(virtualPath: string): Promise<string> {
+    const realPath = this.virtualToReal(virtualPath);
+    const file = Bun.file(realPath);
+    if (!(await file.exists())) {
+      throw new Error('File not found: ' + virtualPath);
+    }
+    return file.text();
+  }
+
+  // --- Atomic Write ---
+
+  /**
+   * Atomically write content to a virtual path. Uses temp file + rename.
+   * Serializes writes via a queue to prevent concurrent writes.
+   * Refuses workspace:// paths.
+   */
+  public async atomicWrite(virtualPath: string, content: string): Promise<void> {
+    if (virtualPath.startsWith('workspace://')) {
+      throw new Error('Cannot write to workspace:// - it is read-only. Use stage_files to copy to artifacts:// first.');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.writeQueue = this.writeQueue.then(async () => {
+        try {
+          const realPath = this.virtualToReal(virtualPath);
+          const dir = dirname(realPath);
+          await mkdir(dir, { recursive: true });
+          const tmpPath = realPath + '.tmp.' + Date.now();
+          await Bun.write(tmpPath, content);
+          await rename(tmpPath, realPath);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
+
+  // --- Staging ---
+
+  /**
+   * Copy files from workspace:// to artifacts://, preserving directory structure.
+   * Skips files that already exist in artifacts://.
+   */
+  public async stageFiles(virtualPaths: string[]): Promise<{ staged: string[]; skipped: string[]; errors: string[] }> {
+    const staged: string[] = [];
+    const skipped: string[] = [];
+    const errors: string[] = [];
+
+    for (const vpath of virtualPaths) {
+      try {
+        if (!vpath.startsWith('workspace://')) {
+          errors.push('Not a workspace:// path: ' + vpath);
+          continue;
+        }
+
+        const rel = vpath.slice('workspace://'.length);
+        const artifactVPath = 'artifacts://' + rel;
+
+        const srcReal = this.virtualToReal(vpath);
+        const dstReal = this.virtualToReal(artifactVPath);
+
+        const srcInfo = await stat(srcReal);
+
+        if (srcInfo.isDirectory()) {
+          const entries = await readdir(srcReal, { recursive: true, withFileTypes: true });
+          for (const entry of entries) {
+            if (!entry.isFile()) continue;
+            const entryRel = entry.parentPath.slice(srcReal.length).replace(/^\//, '');
+            const entryFile = entryRel ? entryRel + '/' + entry.name : entry.name;
+            const dstFile = join(dstReal, entryFile);
+            const dstVPath = 'artifacts://' + (rel ? rel + '/' : '') + entryFile;
+
+            if (await Bun.file(dstFile).exists()) {
+              skipped.push(dstVPath);
+            } else {
+              await mkdir(dirname(dstFile), { recursive: true });
+              await copyFile(join(entry.parentPath, entry.name), dstFile);
+              staged.push(dstVPath);
+            }
+          }
+        } else {
+          if (await Bun.file(dstReal).exists()) {
+            skipped.push(artifactVPath);
+          } else {
+            await mkdir(dirname(dstReal), { recursive: true });
+            await copyFile(srcReal, dstReal);
+            staged.push(artifactVPath);
+          }
+        }
+      } catch (err) {
+        errors.push(vpath + ': ' + (err instanceof Error ? err.message : String(err)));
+      }
+    }
+
+    return { staged, skipped, errors };
   }
 
   // --- Optimized Tree Generation ---
@@ -265,6 +385,17 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 ## Schemes
 - **workspace://** — User-provided input files. Read-only source of truth.
 - **artifacts://** — Your working output space. Write all produced files here.
+
+## Working with Files
+
+1. Read files with read_file (workspace://, artifacts://, skills://)
+2. Before modifying workspace files, call stage_files to copy them to artifacts://
+3. Create new files with write_file (artifacts:// only)
+4. Edit existing files with apply_diff (artifacts:// only)
+5. Use execute_shell for commands (tests, builds, installs)
+
+workspace:// is read-only at the OS level. All modifications happen in artifacts://.
+Shell output may contain real filesystem paths - ignore them and continue using virtual paths.
 
 ## Complete File Tree
 ${tree}

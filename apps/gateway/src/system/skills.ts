@@ -94,16 +94,29 @@ export default class SkillsManager {
     }
     if (validEntries.length === 0) return systemprompt
 
-    let skillsxml = `You have access to specialized skills listed below. These are expert instruction sets for specific tasks.
+    let skillsxml = `MANDATORY SKILL USAGE PROTOCOL
 
-BEFORE starting any task:
-1. Review the available skills below
-2. If a task EVEN PARTIALLY matches a skill's description, read the SKILL.md at its <location> using your read_file tool to get the full instructions
-3. Follow those instructions precisely
+You have access to specialized skills listed below. These are expert instruction sets for specific tasks that you do NOT have in your training data.
 
-Do not guess how to perform a specialized task if a skill exists for it. Read the skill first. Skills are provided because they contain critical domain knowledge, scripts, templates, and step-by-step procedures that you will not have in your training data.
+RULES:
+1. Before starting any task, review the available skills below
+2. If a task EVEN PARTIALLY matches a skill description, you MUST read the SKILL.md at its <location> using your read_file tool BEFORE taking any action
+3. Call read_file({ paths: ["<location_value>"] }) to load the skill instructions
+4. Follow those instructions precisely - they contain procedures, scripts, templates, and reference material you need
 
-When uncertain whether a skill applies, read it anyway. The cost of reading an irrelevant skill is minimal. The cost of skipping a relevant one is a degraded result.
+EXAMPLES:
+
+User asks: "Create a PowerPoint presentation"
+Skill match: pptx-generator with <location>skills://pptx/SKILL.md</location>
+Your FIRST action: read_file({ paths: ["skills://pptx/SKILL.md"] })
+Then follow the instructions returned.
+
+User asks: "Review my code for security issues"
+Skill match: code-reviewer with <location>skills://code-reviewer/SKILL.md</location>
+Your FIRST action: read_file({ paths: ["skills://code-reviewer/SKILL.md"] })
+Then follow the instructions returned.
+
+NEVER skip reading a relevant skill. The cost of reading an irrelevant skill is minimal. The cost of skipping a relevant one is a degraded result. NO EXCEPTIONS.
 
 When a skill references relative paths (scripts/, references/, templates/), resolve them against the skill's <directory>.
 

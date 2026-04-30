@@ -14,15 +14,19 @@ const UNREADABLE_EXTENSIONS = new Set([
   '.mp4', '.mp3', '.wav', '.ogg', '.zip', '.tar', '.gz', '.bin', '.exe',
 ]);
 
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
+  '.pdf', '.woff', '.woff2', '.ttf', '.eot', '.otf',
+  '.mp4', '.mp3', '.wav', '.ogg', '.zip', '.tar', '.gz', '.bin', '.exe',
+]);
+
 class ReadFileTool {
   readonly name = 'read_file';
   readonly definition: ChatCompletionTool = {
     type: 'function',
     function: {
       name: 'read_file',
-      description: `Read the contents of one or more files from the virtual filesystem in an effective manner with BUN + async parallelization.
-Returns a JSON object mapping each absolute file path to its contents.
-DO NOT use this tool for binary or media files (.png, .jpg, .pdf, .woff, .mp4, etc.) — it only handles text-based files.`,
+      description: `Read the contents of one or more files from the virtual filesystem in an effective manner with BUN + async parallelization.\nReturns a JSON object mapping each absolute file path to its contents.\nDO NOT use this tool for binary or media files (.png, .jpg, .pdf, .woff, .mp4, etc.) — it only handles text-based files.`,
       parameters: {
         type: 'object',
         properties: {
@@ -31,7 +35,7 @@ DO NOT use this tool for binary or media files (.png, .jpg, .pdf, .woff, .mp4, e
             description: 'One or more virtual file path to read.',
             items: {
               type: 'string',
-              description: 'A virtual file path (e.g. workspace://project/main.ts, or skills://..., or artifacts://...)',
+              description: 'A virtual file path (e.g. workspace://... , artifacts://...)',
             },
             minItems: 1,
           },
@@ -72,8 +76,6 @@ export interface ShellExecutionResult {
   duration: number;
 }
 
-const RELATIVE_PATH_PATTERN = /(\s|^)(find|du)\s+\./;
-
 /**
  * Shell command execution tool
  */
@@ -85,6 +87,7 @@ class ShellTool {
       name: 'execute_shell',
       description: `
 Execute a shell command and return its output. Suitable for short-running commands that complete and exit.
+
 RECOMMENDED USAGE:
 - Read files: cat file.txt, head -n 20 file.txt, tail -f logs.txt
 - File operations: cp, mv, mkdir, rm
@@ -95,16 +98,15 @@ RECOMMENDED USAGE:
 - Inside command, ALWAYS use relative paths: mkdir -p temp, not mkdir -p /temp
 - Absolute paths like /temp, /var, /home bypass the sandbox entirely and are blocked
 - Think of working_directory as your "/" — navigate relatively from there
+
 NOT SUITABLE FOR:
 - Long-running servers (npm run dev, python server.py)
 - Interactive commands (vim, nano, ssh)
 - Watch modes (npm run watch, nodemon)
 - Background processes (use systemd/pm2 instead)
 
-DO NOT:
-- use any command that returns a full path
-- use relative path exploration: find ., du . — always use absolute virtual paths (workspace://...)
-- use a traversal command to go backward in filetree
+IMPORTANT: Shell output may contain real filesystem paths. Always continue using virtual paths (workspace://, artifacts://) in subsequent tool calls. Do not copy real paths from shell output.
+
 Commands have a 30-second default timeout. Use shorter timeouts for quick checks, longer (up to 300s) for builds/tests.`,
       parameters: {
         type: 'object',
@@ -115,7 +117,7 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
           },
           working_directory: {
             type: 'string',
-            description: 'Working directory for command execution.Where the command will be executed. Must be a virtual path (workspace://, artifacts://, skills://).'
+            description: 'Working directory for command execution. Must be a virtual path (workspace://, artifacts://, skills://).'
           },
           timeout: {
             type: 'number',
@@ -139,28 +141,6 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
     const startTime = Date.now();
     let timedOut = false;
 
-    if (!working_directory || working_directory.includes('://')) {
-      return {
-        success: false,
-        stdout: '',
-        stderr: 'working_directory is required — provide a virtual path (workspace://, artifacts://, skills://)',
-        exitCode: null,
-        timedOut: false,
-        duration: 0,
-      };
-    }
-
-    if (RELATIVE_PATH_PATTERN.test(command)) {
-      return {
-        success: false,
-        stdout: '',
-        stderr: `Relative path commands like "find ." or "ls ." are not allowed. Use absolute virtual paths instead.`,
-        exitCode: null,
-        timedOut: false,
-        duration: 0,
-      };
-    }
-
     try {
       await mkdir(working_directory, { recursive: true });
 
@@ -175,13 +155,11 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
         },
       });
 
-      // Set a hard kill timer — no Promise.race needed
       const killTimer = setTimeout(() => {
         timedOut = true;
         proc.kill();
       }, timeout * 1000);
 
-      // Guard stream reads: if the process is killed, the streams close abruptly
       const [stdout, stderr, exitCode] = await Promise.all([
         new Response(proc.stdout).text().catch(() => ''),
         new Response(proc.stderr).text().catch(() => ''),
@@ -225,6 +203,185 @@ Commands have a 30-second default timeout. Use shorter timeouts for quick checks
   }
 }
 
+class WriteFileTool {
+  readonly name = 'write_file';
+  readonly definition: ChatCompletionTool = {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description: `Create or overwrite a file in the virtual filesystem. Use for creating new files or complete rewrites of small/medium files. For targeted edits to existing files, use apply_diff instead. Only writes to artifacts:// — workspace:// is read-only.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Virtual path where the file should be written. Must be artifacts:// (e.g. artifacts://src/main.ts). workspace:// is read-only.',
+          },
+          content: {
+            type: 'string',
+            description: 'The complete file content to write.',
+          },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  };
+
+  constructor(private vfs: VirtualFileSystem) { }
+
+  async execute(args: Record<string, unknown>): Promise<{ success: boolean; path: string; bytes: number; error?: string }> {
+    const path = args.path as string | undefined;
+    const content = args.content as string | undefined;
+
+    if (!path || !content) {
+      return { success: false, path: path ?? '', bytes: 0, error: 'Missing required arguments: path and content' };
+    }
+
+    if (BINARY_EXTENSIONS.has(path.slice(path.lastIndexOf('.')).toLowerCase())) {
+      return { success: false, path, bytes: 0, error: `Cannot write binary file (${path.slice(path.lastIndexOf('.'))}). Use execute_shell for binary operations.` };
+    }
+
+    if (content.length > 100000) {
+      return { success: false, path, bytes: 0, error: `Content too large (${content.length} chars). Maximum is 100,000 characters. Use apply_diff for targeted edits or execute_shell for large files.` };
+    }
+
+    try {
+      await this.vfs.atomicWrite(path, content);
+      return { success: true, path, bytes: Buffer.byteLength(content) };
+    } catch (err) {
+      return { success: false, path, bytes: 0, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}
+
+interface DiffOperation {
+  search: string;
+  replace: string;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+class ApplyDiffTool {
+  readonly name = 'apply_diff';
+  readonly definition: ChatCompletionTool = {
+    type: 'function',
+    function: {
+      name: 'apply_diff',
+      description: `Apply targeted search-and-replace edits to an existing file in the virtual filesystem. More token-efficient than write_file for small changes. Each diff operation finds an exact text match and replaces it. Provide enough context lines in 'search' to ensure a unique match. Only works on artifacts:// files.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Virtual path of the file to edit. Must be artifacts:// (e.g. artifacts://src/main.ts).',
+          },
+          diffs: {
+            type: 'array',
+            description: 'List of search-and-replace operations to apply sequentially.',
+            items: {
+              type: 'object',
+              properties: {
+                search: {
+                  type: 'string',
+                  description: 'Exact text to find in the file. Include 3+ lines of surrounding context for unique matching.',
+                },
+                replace: {
+                  type: 'string',
+                  description: 'The replacement text.',
+                },
+              },
+              required: ['search', 'replace'],
+            },
+            minItems: 1,
+          },
+        },
+        required: ['path', 'diffs'],
+      },
+    },
+  };
+
+  constructor(private vfs: VirtualFileSystem) { }
+
+  async execute(args: Record<string, unknown>): Promise<{ success: boolean; path: string; changes: number; errors: string[] }> {
+    const path = args.path as string | undefined;
+    const diffs = args.diffs as DiffOperation[] | undefined;
+
+    if (!path || !diffs || diffs.length === 0) {
+      return { success: false, path: path ?? '', changes: 0, errors: ['Missing required arguments: path and diffs'] };
+    }
+
+    try {
+      const content = await this.vfs.readFileTextByVPath(path);
+      let result = content;
+      const errors: string[] = [];
+      let changes = 0;
+
+      for (let i = 0; i < diffs.length; i++) {
+        const { search, replace } = diffs[i];
+        const count = (result.match(new RegExp(escapeRegex(search), 'g')) || []).length;
+
+        if (count === 0) {
+          errors.push(`Diff ${i + 1}: Search text not found in file. Verify the exact text exists.`);
+          continue;
+        }
+        if (count > 1) {
+          errors.push(`Diff ${i + 1}: Ambiguous match — found ${count} occurrences. Provide more surrounding context lines for a unique match.`);
+          continue;
+        }
+        result = result.replace(search, replace);
+        changes++;
+      }
+
+      if (changes > 0) {
+        await this.vfs.atomicWrite(path, result);
+      }
+
+      return { success: errors.length === 0, path, changes, errors };
+    } catch (err) {
+      return { success: false, path, changes: 0, errors: [err instanceof Error ? err.message : String(err)] };
+    }
+  }
+}
+
+class StageFilesTool {
+  readonly name = 'stage_files';
+  readonly definition: ChatCompletionTool = {
+    type: 'function',
+    function: {
+      name: 'stage_files',
+      description: `Copy files from the read-only workspace:// to the writable artifacts:// directory, preserving directory structure. Use this BEFORE modifying any workspace file. This creates a working copy in artifacts:// that you can freely edit with write_file or apply_diff. If a file already exists in artifacts:// (previously staged), it is skipped. You can stage individual files or entire directories.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          paths: {
+            type: 'array',
+            description: 'List of workspace:// paths to copy to artifacts://. Can be files or directories.',
+            items: {
+              type: 'string',
+              description: 'A workspace:// path (e.g. workspace://src/components/App.tsx or workspace://src/components/)',
+            },
+            minItems: 1,
+          },
+        },
+        required: ['paths'],
+      },
+    },
+  };
+
+  constructor(private vfs: VirtualFileSystem) { }
+
+  async execute(args: Record<string, unknown>): Promise<{ staged: string[]; skipped: string[]; errors: string[] }> {
+    const paths = args.paths as string[] | undefined;
+    if (!paths || paths.length === 0) {
+      return { staged: [], skipped: [], errors: ['Missing required argument: paths'] };
+    }
+
+    return this.vfs.stageFiles(paths);
+  }
+}
+
 /**
  * Core Tools Manager
  * Manages built-in tools that are always available
@@ -234,54 +391,46 @@ export class CoreToolsManager {
   private vfs?: VirtualFileSystem;
 
   constructor(virtualFileSystem?: VirtualFileSystem) {
-    const shellTool = new ShellTool();
-    this.tools.set(shellTool.name, shellTool);
+    this.vfs = virtualFileSystem;
 
     const readFileTool = new ReadFileTool();
     this.tools.set(readFileTool.name, readFileTool);
 
-    this.vfs = virtualFileSystem;
+    const shellTool = new ShellTool();
+    this.tools.set(shellTool.name, shellTool);
+
+    if (this.vfs) {
+      const writeFileTool = new WriteFileTool(this.vfs);
+      this.tools.set(writeFileTool.name, writeFileTool);
+
+      const applyDiffTool = new ApplyDiffTool(this.vfs);
+      this.tools.set(applyDiffTool.name, applyDiffTool);
+
+      const stageFilesTool = new StageFilesTool(this.vfs);
+      this.tools.set(stageFilesTool.name, stageFilesTool);
+    }
   }
 
-  /**
-   * Check if a tool name is a core tool
-   */
   isCoreTool(toolName: string): boolean {
     return this.tools.has(toolName);
   }
 
-  /**
-   * Get all core tool definitions for the LLM
-   */
   getToolDefinitions(): ChatCompletionTool[] {
     return Array.from(this.tools.values()).map(tool => tool.definition);
   }
 
-  /**
-   * Get list of all core tool names
-   */
   getToolNames(): string[] {
     return Array.from(this.tools.keys());
   }
 
-  /**
-   * Filter a list of tool names to only core tools
-   */
   filterCoreTools(toolNames: string[]): string[] {
     return toolNames.filter(name => this.isCoreTool(name));
   }
 
-  /**
-   * Filter a list of tool names to exclude core tools
-   */
   filterNonCoreTools(toolNames: string[]): string[] {
     return toolNames.filter(name => !this.isCoreTool(name));
   }
 
-  /**
-   * Execute a core tool by name
-   * Returns a ChatCompletionMessageParam for adding to history
-   */
   async execute(
     toolName: string,
     toolCallId: string,
@@ -298,6 +447,40 @@ export class CoreToolsManager {
         tool_call_id: toolCallId,
         content: `Security violation: ${err instanceof Error ? err.message : String(err)}`,
       };
+    }
+
+    // Pre-validate working_directory for shell tool
+    if (toolName === 'execute_shell') {
+      const wd = args.working_directory as string | undefined;
+      if (!wd || wd.trim() === '') {
+        return {
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: JSON.stringify({
+            success: false,
+            stdout: '',
+            stderr: 'working_directory is required. Provide a virtual path (workspace://, artifacts://, skills://).',
+            exitCode: null,
+            timedOut: false,
+            duration: 0,
+          }),
+        };
+      }
+      const validSchemes = ['workspace://', 'artifacts://', 'skills://'];
+      if (!validSchemes.some(s => wd.startsWith(s))) {
+        return {
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: JSON.stringify({
+            success: false,
+            stdout: '',
+            stderr: `working_directory must be a virtual path (workspace://, artifacts://, skills://). Received: "${wd}"`,
+            exitCode: null,
+            timedOut: false,
+            duration: 0,
+          }),
+        };
+      }
     }
 
     const resolvedArgs = this.vfs.resolveArgs(args);
@@ -328,9 +511,6 @@ export class CoreToolsManager {
     }
   }
 
-  /**
-   * Check if any tools in a list are core tools
-   */
   hasCoreTools(toolNames: string[]): boolean {
     return toolNames.some(name => this.isCoreTool(name));
   }
