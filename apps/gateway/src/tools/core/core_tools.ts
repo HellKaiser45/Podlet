@@ -423,7 +423,7 @@ export class CoreToolsManager {
 
   constructor(virtualFileSystem?: VirtualFileSystem) {
     // Always register ALL tools so getToolDefinitions() works without VFS
-    this.tools = new Map<string, ITool>([
+    this.tools = new Map([
       [this.readFileTool.name, this.readFileTool],
       [this.shellTool.name, this.shellTool],
       [this.writeFileTool.name, this.writeFileTool],
@@ -461,8 +461,8 @@ export class CoreToolsManager {
     if (!tool) return this.makeError(toolCallId, `Core tool not found: ${toolName}`);
 
     // ── Shell: special handling ────────────────────────────────────────────
-    // Shell needs real paths for cwd, so we resolve args for it specifically.
-    // It also does not touch the VFS, so no sanitization is needed.
+    // Shell needs real paths for cwd, so we resolve args before execution.
+    // stdout/stderr are sanitized afterwards to strip any leaked real paths.
     if (toolName === 'execute_shell') {
       const wd = args.working_directory as string | undefined;
 
@@ -483,9 +483,17 @@ export class CoreToolsManager {
 
       // Resolve virtual paths → real paths so the shell gets a real cwd
       const resolvedArgs = this.vfs.resolveArgs(args);
-      const result = await tool.execute(resolvedArgs);
-      const raw = JSON.stringify(result);
-      return { role: 'tool', tool_call_id: toolCallId, content: this.vfs.sanitizeErrorMessage(raw) };
+      const result = await tool.execute(resolvedArgs) as ShellExecutionResult;
+
+      // Sanitize stdout and stderr — commands like `pwd` or `ls -la` will
+      // print real filesystem paths that must not reach the model.
+      const sanitized: ShellExecutionResult = {
+        ...result,
+        stdout: this.vfs.sanitizeErrorMessage(result.stdout),
+        stderr: this.vfs.sanitizeErrorMessage(result.stderr),
+      };
+
+      return { role: 'tool', tool_call_id: toolCallId, content: JSON.stringify(sanitized) };
     }
 
     // ── All other tools: virtual paths passed directly ────────────────────
@@ -526,13 +534,25 @@ export class CoreToolsManager {
     };
   }
 
-  private validateAllPaths(value: unknown): void {
-    if (typeof value === 'string') {
-      this.vfs?.validatePaths(value);
-    } else if (Array.isArray(value)) {
-      for (const item of value) this.validateAllPaths(item);
-    } else if (value !== null && typeof value === 'object') {
-      for (const v of Object.values(value)) this.validateAllPaths(v);
+  // Keys whose values are path-like and should be validated.
+  // Keys like "content", "search", "replace" hold arbitrary user text and must
+  // never be scanned — otherwise legitimate markdown (e.g. /en/...) trips the
+  // path-traversal regex.
+  private static readonly PATH_KEYS = new Set([
+    'path', 'paths', 'working_directory',
+  ]);
+
+  private validateAllPaths(args: Record<string, unknown>): void {
+    for (const [key, value] of Object.entries(args)) {
+      if (!CoreToolsManager.PATH_KEYS.has(key)) continue;
+
+      if (typeof value === 'string') {
+        this.vfs?.validatePaths(value);
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === 'string') this.vfs?.validatePaths(item);
+        }
+      }
     }
   }
 }
