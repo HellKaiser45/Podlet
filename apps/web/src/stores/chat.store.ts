@@ -46,6 +46,24 @@ export const [state, setState] = createStore<Conversation>({
   pendingApprovals: []
 });
 
+// ─── Stream Lifecycle Guard ──────────────────────────────────────────────────
+let _streamVersion = 0;
+let _activeAbortController: AbortController | null = null;
+
+/** Invalidate any running stream. Called on conversation switch. */
+function invalidateStream(): void {
+  _streamVersion++;
+  if (_activeAbortController) {
+    _activeAbortController.abort();
+    _activeAbortController = null;
+  }
+}
+
+/** Check if the stream that started at `version` is still the active one. */
+function isStreamAlive(version: number): boolean {
+  return version === _streamVersion;
+}
+
 export async function loadConversation(): Promise<void> {
   const id = runId()
   if (!id) throw new Error('runId not provided')
@@ -62,12 +80,14 @@ export async function loadConversation(): Promise<void> {
 }
 
 export function clearConversation(): void {
+  invalidateStream();
   setState({
     status: 'loading',
     messages: [],
     tools: [],
     subagents: {},
-    pendingApprovals: []
+    pendingApprovals: [],
+    error: undefined
   })
 }
 
@@ -112,17 +132,24 @@ export async function callstreamandhandleevents(message: string) {
   const agent = selectedAgent()
   if (!agent) throw new Error('agent not selected')
 
+  // Register this stream and create abort controller
+  invalidateStream();
+  const myVersion = _streamVersion;
+  const abortController = new AbortController();
+  _activeAbortController = abortController;
+
   const { data, error } = await api.chat.post({
     message: messagetosend,
     runId: id,
     threadId: 'frontend-dev-1',
     agentId: agent,
     attachmentIds: uploadData.map(file => file.id)
-  });
+  }, { signal: abortController.signal });
 
   if (error) {
     console.error('Chat post failed', error);
     setState({ status: 'idle' });
+    _activeAbortController = null;
     return;
   }
 
@@ -132,6 +159,9 @@ export async function callstreamandhandleevents(message: string) {
 
   try {
     for await (const chunk of data) {
+      // If conversation changed, stop processing
+      if (!isStreamAlive(myVersion)) break;
+
       if (!chunk.data) { console.log('No data chunk: \n', chunk); continue; }
       switch (chunk.data.type) {
         case "TEXT_MESSAGE_CHUNK": {
@@ -210,10 +240,20 @@ export async function callstreamandhandleevents(message: string) {
       }
     }
   } catch (err) {
-    console.error('[chat.store] Stream error:', err);
-    setState({ error: String(err) });
+    // Aborted streams are expected on conversation switch -- not an error
+    if (abortController.signal.aborted) {
+      console.log('[chat.store] Stream aborted due to conversation switch');
+    } else {
+      console.error('[chat.store] Stream error:', err);
+      if (isStreamAlive(myVersion)) {
+        setState({ error: String(err) });
+      }
+    }
   } finally {
-    if (state.status !== 'awaiting_approval') {
+    if (_activeAbortController === abortController) {
+      _activeAbortController = null;
+    }
+    if (isStreamAlive(myVersion) && state.status !== 'awaiting_approval') {
       setState({ status: 'idle' });
     }
     revalidate('runIds');
@@ -231,22 +271,30 @@ export async function resumeWithDecision(decisions: Record<string, { approved: b
 
   setState({ pendingApprovals: [], error: undefined });
 
+  // Register this stream
+  invalidateStream();
+  const myVersion = _streamVersion;
+  const abortController = new AbortController();
+  _activeAbortController = abortController;
+
   const { data, error } = await api.chat.post({
     message: { role: "user", content: "" },
     runId: id,
     threadId: 'frontend-dev-1',
     agentId: agent,
     decision: decisions,
-  });
+  }, { signal: abortController.signal });
 
   if (error) {
     console.error('Resume failed', error);
     setState({ status: 'idle' });
+    _activeAbortController = null;
     return;
   }
 
   try {
     for await (const chunk of data) {
+      if (!isStreamAlive(myVersion)) break;
       if (!chunk.data) continue;
       switch (chunk.data.type) {
         case "TEXT_MESSAGE_CHUNK": {
@@ -284,10 +332,19 @@ export async function resumeWithDecision(decisions: Record<string, { approved: b
       }
     }
   } catch (err) {
-    console.error('[chat.store] Resume stream error:', err);
-    setState({ error: String(err) });
+    if (abortController.signal.aborted) {
+      console.log('[chat.store] Resume stream aborted due to conversation switch');
+    } else {
+      console.error('[chat.store] Resume stream error:', err);
+      if (isStreamAlive(myVersion)) {
+        setState({ error: String(err) });
+      }
+    }
   } finally {
-    if (state.status !== 'awaiting_approval') {
+    if (_activeAbortController === abortController) {
+      _activeAbortController = null;
+    }
+    if (isStreamAlive(myVersion) && state.status !== 'awaiting_approval') {
       setState({ status: 'idle' });
     }
     revalidate('runIds');
