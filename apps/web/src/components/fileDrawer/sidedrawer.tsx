@@ -278,7 +278,7 @@ export default function SideDrawer() {
                   files={currentFiles()}
                   selectedId={selectedFile()?.id ?? null}
                   onSelectFile={setSelectedFile}
-                  onDownloadFile={(f) => handleDownload()}
+                  onDownloadFile={(f) => downloadFile(runId()!, f.id, f.name).catch(e => console.error('Download failed:', e))}
                   onDownloadFolder={handleDownloadFolder}
                 />
               </Suspense>
