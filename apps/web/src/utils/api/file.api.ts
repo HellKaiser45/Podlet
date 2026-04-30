@@ -39,11 +39,10 @@ export async function downloadFile(
   fileId: string,
   fileName: string
 ): Promise<void> {
-  const { data, error } = await api
-    .file.download({ runid: runId })({ fileid: fileId })
-    .get();
-  if (error || !data) throw error;
-  const url = URL.createObjectURL(data);
+  const res = await fetch(`${BASE_URL}/api/file/download/${runId}/${fileId}`);
+  if (!res.ok) throw new Error('Failed to download file');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName;
