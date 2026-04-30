@@ -249,7 +249,7 @@ class WriteFileTool {
       await this.vfs.atomicWrite(path, content);
       return { success: true, path, bytes: Buffer.byteLength(content) };
     } catch (err) {
-      return { success: false, path, bytes: 0, error: err instanceof Error ? err.message : String(err) };
+      return { success: false, path, bytes: 0, error: this.vfs.sanitizeErrorMessage(err) };
     }
   }
 }
@@ -340,7 +340,7 @@ class ApplyDiffTool {
 
       return { success: errors.length === 0, path, changes, errors };
     } catch (err) {
-      return { success: false, path, changes: 0, errors: [err instanceof Error ? err.message : String(err)] };
+      return { success: false, path, changes: 0, errors: [this.vfs.sanitizeErrorMessage(err)] };
     }
   }
 }
@@ -439,14 +439,16 @@ export class CoreToolsManager {
     const tool = this.tools.get(toolName);
     if (!this.vfs) throw new Error('Virtual File System not initialized');
 
-    try {
-      this.validateAllPaths(args);
-    } catch (err) {
-      return {
-        role: "tool",
-        tool_call_id: toolCallId,
-        content: `Security violation: ${err instanceof Error ? err.message : String(err)}`,
-      };
+    if (toolName !== 'execute_shell') {
+      try {
+        this.validateAllPaths(args);
+      } catch (err) {
+        return {
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: `Security violation: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
     }
 
     // Pre-validate working_directory for shell tool

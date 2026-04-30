@@ -194,6 +194,26 @@ export class VirtualFileSystem {
   }
 
   /**
+   * Replace real filesystem paths in error messages with virtual equivalents.
+   * Safe for error messages (unlike file content) — these are short OS strings.
+   */
+  public sanitizeErrorMessage(error: unknown): string {
+    const msg = error instanceof Error ? error.message : String(error);
+    const ctx = { rootDir: this.rootDir, runId: this.runId, cwd: this.cwd };
+
+    // Replace longest real paths first to prevent partial matches
+    const replacements: [string, string][] = VIRTUAL_SCHEMES
+      .map(s => [SCHEME_RESOLVERS[s](ctx), s] as [string, string])
+      .sort((a, b) => b[0].length - a[0].length);
+
+    let result = msg;
+    for (const [realRoot, virtualScheme] of replacements) {
+      result = result.split(realRoot).join(virtualScheme);
+    }
+    return result;
+  }
+
+  /**
    * Translates a real absolute path back to a virtual path.
    */
   realToVirtual(realPath: string): string {
@@ -247,12 +267,16 @@ export class VirtualFileSystem {
    * Read file text by virtual path (used by tools that receive virtual paths).
    */
   public async readFileTextByVPath(virtualPath: string): Promise<string> {
-    const realPath = this.virtualToReal(virtualPath);
-    const file = Bun.file(realPath);
-    if (!(await file.exists())) {
-      throw new Error('File not found: ' + virtualPath);
+    try {
+      const realPath = this.virtualToReal(virtualPath);
+      const file = Bun.file(realPath);
+      if (!(await file.exists())) {
+        throw new Error('File not found: ' + virtualPath);
+      }
+      return file.text();
+    } catch (err) {
+      throw new Error(this.sanitizeErrorMessage(err));
     }
-    return file.text();
   }
 
   // --- Atomic Write ---
@@ -278,7 +302,10 @@ export class VirtualFileSystem {
           await rename(tmpPath, realPath);
           resolve();
         } catch (err) {
-          reject(err);
+          const sanitized = err instanceof Error
+            ? new Error(this.sanitizeErrorMessage(err))
+            : new Error(this.sanitizeErrorMessage(err));
+          reject(sanitized);
         }
       });
     });
@@ -337,7 +364,7 @@ export class VirtualFileSystem {
           }
         }
       } catch (err) {
-        errors.push(vpath + ': ' + (err instanceof Error ? err.message : String(err)));
+        errors.push(vpath + ': ' + this.sanitizeErrorMessage(err));
       }
     }
 
