@@ -1,13 +1,13 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
 import { useParams } from "@solidjs/router";
-import { loadConversation, state } from "../stores/chat.store";
+import { loadConversation, state, setRunId } from "../stores/chat.store";
 import ChatBubble from "./chat/chat-bubbles";
-import { InputChatbox } from "./input-chatbox";
+
 import { DataVault } from "./data-vault";
 
 export default function ChatWriter() {
   const params = useParams<{ runId: string }>();
-  const messages = () => state[params.runId]?.messages;
+  const messages = () => state.messages;
   const [vaultOpen, setVaultOpen] = createSignal(false);
 
   // Tracks file references injected from the vault so they appear in the
@@ -18,7 +18,8 @@ export default function ChatWriter() {
     name: string;
   } | null>(null);
 
-  loadConversation(params.runId);
+  setRunId(params.runId);
+  loadConversation();
 
   let scrollContainer: HTMLDivElement | undefined;
 
@@ -137,7 +138,7 @@ export default function ChatWriter() {
         >
           <div class="max-w-3xl mx-auto space-y-4">
             <For each={messages()}>
-              {(message) => <ChatBubble {...message} />}
+              {(message) => <ChatBubble message={message} />}
             </For>
             <div class="h-4" />
           </div>
@@ -146,7 +147,11 @@ export default function ChatWriter() {
         {/* Input */}
         <div class="shrink-0 p-4 pb-6">
           <div class="max-w-3xl mx-auto">
-            <InputChatbox runid={params.runId} />
+            <textarea
+              class="w-full bg-base-200 rounded-xl px-4 py-3 text-sm outline-none border border-base-300 focus:border-primary resize-none"
+              placeholder="Type a message..."
+              rows={2}
+            />
           </div>
         </div>
       </div>

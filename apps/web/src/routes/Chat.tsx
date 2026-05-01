@@ -1,6 +1,5 @@
 import { createSignal, createEffect, For, Show, onCleanup } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
-import type { LiteLLMMessage } from '@podlet/types'
 
 interface Thread {
   id: string
@@ -100,7 +99,7 @@ export default function Chat() {
         body: JSON.stringify({
           threadId: activeThreadId() ?? crypto.randomUUID(),
           runId: crypto.randomUUID(),
-          message: { role: 'user', content: text } satisfies LiteLLMMessage,
+          message: { role: 'user', content: text },
           state: {},
           tools: [],
           context: [],

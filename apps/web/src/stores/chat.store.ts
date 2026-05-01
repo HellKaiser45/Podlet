@@ -8,7 +8,7 @@ import { attachments } from "./attachements.store";
 import { selectedAgent } from "./chatInput.store";
 import { revalidate } from "@solidjs/router";
 
-export const [runId, setRunId] = createSignal();
+export const [runId, setRunId] = createSignal<string>();
 export const [label, setLabel] = createSignal("");
 
 export interface ToolCall {
@@ -32,19 +32,29 @@ export interface Conversation {
   status: 'idle' | 'running' | 'loading' | 'awaiting_approval';
   messages: ChatCompletionMessageParam[];
   tools: ToolCall[];
-  subagents: Record;
+  subagents: Record<string, ChatCompletionMessageParam[]>;
   pendingApprovals: PendingApproval[];
+}
+
+export interface ChatState {
+  status: 'idle' | 'running' | 'loading' | 'awaiting_approval';
+  messages: ChatCompletionMessageParam[];
+  tools: ToolCall[];
+  subagents: Record<string, ChatCompletionMessageParam[]>;
+  pendingApprovals: PendingApproval[];
+  error?: string;
+  [key: string]: unknown;
 }
 
 // ─── Environment & State ─────────────────────────────────────────────────────
 export const MAX_FILE_SIZE = 1024 * 1024 * 10;
 
-export const [state, setState] = createStore({
+export const [state, setState] = createStore<ChatState>({
   status: 'loading',
   messages: [],
   tools: [],
   subagents: {},
-  pendingApprovals: []
+  pendingApprovals: [],
 });
 
 let _streamVersion = 0;
@@ -162,8 +172,8 @@ export function callstreamandhandleevents(message: string) {
         runId: id,
         threadId: 'frontend-dev-1',
         agentId: agent,
-        attachmentIds: uploadData.map(file => file.id)
-      }, { signal: abortController.signal }).then(({ data, error }) => {
+        attachmentIds: uploadData.map((file) => file.id)
+      }, { fetch: { signal: abortController.signal } }).then(({ data, error }: { data: any; error: any }) => {
         if (error) {
           console.error('Chat post failed', error);
           setState({ status: 'idle' });
@@ -271,7 +281,7 @@ export function callstreamandhandleevents(message: string) {
     });
 }
 
-export function resumeWithDecision(decisions: Record) {
+export function resumeWithDecision(decisions: Record<string, { approved: boolean; feedback?: string }>) {
   setState({ status: 'running' });
 
   const id = runId();
@@ -293,7 +303,7 @@ export function resumeWithDecision(decisions: Record) {
     threadId: 'frontend-dev-1',
     agentId: agent,
     decision: decisions,
-  }, { signal: abortController.signal }).then(({ data, error }) => {
+  }, { fetch: { signal: abortController.signal } }).then(({ data, error }: { data: any; error: any }) => {
     if (error) {
       console.error('Resume failed', error);
       setState({ status: 'idle' });

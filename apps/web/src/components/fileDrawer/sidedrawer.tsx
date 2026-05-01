@@ -19,14 +19,26 @@ const marked = new Marked(
   })
 );
 
-const getInvoiceQuery = query(async (id?: string) => {
+interface GroupedFiles {
+  workspace: Array<{ name: string; vpath: string; id: string; type: 'text' | 'image' }>;
+  artifact: Array<{ name: string; vpath: string; id: string; type: 'text' | 'image' }>;
+}
+
+const getInvoiceQuery = query(async (id?: string): Promise<GroupedFiles | undefined> => {
   if (!id) return;
   const { data, error } = await api.file.all({ runid: id }).get();
   if (error) throw error;
   return groupFilesByOrigin(data);
 }, "invoice");
 
-const getItemContent = query(async (itemId?: string, runIdValue?: string) => {
+interface FileContent {
+  itemId: string;
+  runId: string;
+  isImage: boolean;
+  content: string;
+}
+
+const getItemContent = query(async (itemId?: string, runIdValue?: string): Promise<FileContent | undefined> => {
   if (!runIdValue || !itemId) return;
   const res = await api.file.download({ runid: runIdValue })({ fileid: itemId }).get();
   const mime = res.response.headers.get('Content-Type') || '';
@@ -34,7 +46,7 @@ const getItemContent = query(async (itemId?: string, runIdValue?: string) => {
     itemId,
     runId: runIdValue,
     isImage: mime.startsWith('image'),
-    content: mime.startsWith('image') ? '' : res.data,
+    content: mime.startsWith('image') ? '' : String(res.data),
   };
 }, 'content');
 

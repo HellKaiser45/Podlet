@@ -173,7 +173,7 @@ export default function FileTree(props: FileTreeProps) {
     setExpandedFolders(allPaths);
   };
 
-  const collapseAll = () => setExpandedFolders(new Set());
+  const collapseAll = () => setExpandedFolders(new Set<string>());
 
   return (
     <div class="flex flex-col h-full">

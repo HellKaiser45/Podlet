@@ -20,5 +20,8 @@
     "officeparser": "^6.0.7",
     "podlet-monorepo": ".",
     "pptxgenjs": "^4.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
   }
 }

@@ -1,4 +1,4 @@
-import type { App } from 'gateway'
+import type { App } from '@podlet/gateway'
 import {
   treaty
 } from '@elysiajs/eden'
