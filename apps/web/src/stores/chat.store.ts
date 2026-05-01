@@ -140,8 +140,10 @@ export function callstreamandhandleevents(message: string) {
   const fileAttachments = attachments();
 
   // Upload files to backend (backend reconstructs base64 for the LLM)
-  api.file.upload({ runId: id })
-    .post({ files: fileAttachments.map(a => a.file) })
+  api.file.upload.post({
+    runId: id,
+    files: fileAttachments.map(a => a.file)
+  })
     .then(({ data: uploadData, error: uploadError }) => {
       if (uploadError) {
         console.error('Upload failed', uploadError);
