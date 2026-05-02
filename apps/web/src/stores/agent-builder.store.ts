@@ -66,7 +66,11 @@ async function fetchMcps(): Promise<Record<string, MCPServerConfig>> {
 async function fetchSkills(): Promise<SkillInfo[]> {
   try {
     const res = await fetch(BASE + "/skills/all");
-    return await res.json();
+    const data = await res.json();
+    // Backend may return a Record<string, SkillInfo> or SkillInfo[]
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === "object") return Object.values(data) as SkillInfo[];
+    return [];
   } catch {
     return [];
   }
