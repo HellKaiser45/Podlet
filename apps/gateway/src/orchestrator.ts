@@ -1,7 +1,7 @@
 import { EventType } from "@ag-ui/core";
 import { AgentChatLoop } from "./agent-loop/chat-loop";
 import AppContainer from "./runtime";
-import { AgentStackFrame, RunAgentInput, UserDecision, ExecutionContext, AgentState, LiteLLMMessage } from "./types";
+import { AgentStackFrame, RunAgentInput, UserDecision, ExecutionContext, AgentState, LiteLLMMessage, DEFAULT_MAX_ITERATIONS } from "./types";
 import { randomUUIDv7 } from "bun";
 import { VirtualFileSystem } from "./system/sandbox";
 
@@ -115,7 +115,7 @@ export class AgentOrchestrator {
       frame: frame,
       currentState: AgentState.INITIALIZING,
       iteration: 0,
-      maxIterations: 10,
+      maxIterations: DEFAULT_MAX_ITERATIONS,
     }
     const loop = new AgentChatLoop(context, this.appContainer, input.agentId)
     const res = await loop.execute()
@@ -153,7 +153,7 @@ export class AgentOrchestrator {
         frame: leaf,
         currentState: AgentState.INITIALIZING,
         iteration: 0,
-        maxIterations: 10,
+        maxIterations: DEFAULT_MAX_ITERATIONS,
       };
       const loop = new AgentChatLoop(context, this.appContainer, leaf.agent_id);
       frameexec.push(loop.execute());
