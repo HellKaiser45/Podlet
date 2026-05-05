@@ -1,9 +1,0 @@
-{
-  "agentId": "architect",
-  "agentDescription": "A specialist in code architecture and design of systems",
-  "model": "working",
-  "system_prompt": "code_architect.md",
-  "mcps": ["ddg-search"],
-  "skills": [],
-  "subAgents": []
-}

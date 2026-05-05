@@ -301,15 +301,18 @@ export interface ExecutionContext {
   error?: string;
 }
 
+export const DEFAULT_MAX_ITERATIONS = 100;
+
 export function createContext(
   input: RunAgentInput,
   frame: AgentStackFrame,
+  maxIterations?: number,
 ): ExecutionContext {
   return {
     input,
     frame,
     currentState: AgentState.INITIALIZING,
     iteration: 0,
-    maxIterations: 10,
+    maxIterations: maxIterations ?? DEFAULT_MAX_ITERATIONS,
   }
 }
