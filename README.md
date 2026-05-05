@@ -124,7 +124,7 @@ Podlet uses a dedicated configuration directory located at `~/.podlet/` (referen
 | `logging.level` | Log verbosity (`debug`, `info`, `warn`, `error`). |
 | `features.safemode` | Enable Human-in-the-Loop (HIL) approval for destructive tools. |
 | `features.max_concurrent_agents` | Maximum number of simultaneous agent runs. |
-| `features.cors_origin` | Allowed CORS origin for the frontend. |
+| `features.cors_origin` | Allowed CORS origin for the frontend. Can be overridden with the `CORS_ORIGIN` environment variable. |
 
 ## Agents
 
@@ -332,6 +332,11 @@ The chat endpoint streams events over SSE. Clients should handle the following e
 | `RUN_FINISHED` | Emitted when an agent run completes. Payload includes the final `result` with `status`. |
 | `CUSTOM` | Custom application events. Currently used for `AWAITING_APPROVAL` during HIL. |
 | `RUN_ERROR` | Emitted on unrecoverable errors. Payload includes `message` and `code` (e.g., `TOKEN_LIMIT_EXCEEDED`). |
+| `HEARTBEAT` | Periodic keep-alive ping (every 5 seconds) to prevent connection drops during long-running agent operations. |
+| `TOOL_CALL` | Emitted when an agent invokes a tool. Payload includes tool name and arguments. |
+| `TOOL_RESULT` | Emitted when a tool execution completes. Payload includes the result content. |
+| `SUBAGENT_STARTED` | Emitted when a sub-agent is invoked. Payload includes the sub-agent ID. |
+| `SUBAGENT_COMPLETED` | Emitted when a sub-agent finishes. Payload includes the sub-agent output. |
 
 ## Frontend
 
@@ -340,7 +345,31 @@ The web UI is accessible at `http://localhost:3002` by default but can be config
 - **Thread Management**: Sidebar for organizing conversations.
 - **Streaming UI**: Real-time responses with typing indicators.
 - **Agent HUD**: Overview of agent statuses and configurations.
+- **Stop Button**: Cancel a running agent mid-execution via a dedicated stop button that replaces the send button during active streams.
+- **Sidebar Search**: Filter conversations by label or preview text in real time.
+- **Error Display**: Inline error banner with dismiss button surfaces agent errors, LLM failures, and connection drops directly in the chat view.
+- **Typing Indicator**: Animated bouncing dots indicator while the agent is thinking or generating a response.
+- **Attachment Management**: Files up to 10 MB are supported. Attachments are automatically cleared after sending. Duplicate filenames are auto-renamed.
+- **Subagent Output**: Sub-agent responses are shown as collapsible inline blocks in the main conversation, not hidden behind a panel.
+- **Connection Resilience**: Frontend detects SSE connection drops and displays a warning. Heartbeat pings (5s interval) keep connections alive through proxies.
+- **Agent Hot-Reload**: Agent configuration changes (model, prompt, sub-agents) are picked up automatically without restarting the application.
 - **Styling**: DaisyUI Catppuccin Mocha theme.
+
+## Security Considerations
+
+Podlet is designed as a **local, personal development tool**. It intentionally does not include authentication or authorization layers. Keep the following in mind:
+
+- **Network Exposure**: The gateway binds to `127.0.0.1` by default. Do not change this to `0.0.0.0` unless you understand the risks — all API endpoints are unauthenticated and would be accessible to anyone on the network.
+- **CORS**: The allowed origin is configurable via `features.cors_origin` in `config.json` (or the `CORS_ORIGIN` environment variable). Default is `http://localhost:3002`.
+- **Virtual Filesystem**: Agents are sandboxed to `workspace://` (read-only) and `artifacts://` (read-write). Prompt file paths are validated to prevent path traversal outside the prompts directory.
+- **Prompt Injection**: As with any LLM-based system, prompt injection is a potential risk. Agent prompts, file contents, and MCP tool results are all part of the context window. Be cautious when:
+  - Agents read untrusted files or user inputs that may contain injection payloads.
+  - MCP servers return results that could manipulate agent behavior.
+  - Sub-agents receive instructions from parent agent output that was influenced by external data.
+- **Sub-Agent Depth**: Recursive sub-agent calls are capped at 3 levels deep to prevent infinite loops.
+- **Agent Deletion Protection**: Agents cannot be deleted while they have active streams running.
+- **Human-in-the-Loop**: Enable `features.safemode` in `config.json` to require explicit user approval before destructive tool calls execute.
+- **Tool Execution**: Shell commands run inside the agent sandbox. While the VFS provides isolation, commands can still access the host system. Review tool calls in HIL mode for untrusted agents.
 
 ## Tech Stack
 
@@ -362,6 +391,10 @@ The web UI is accessible at `http://localhost:3002` by default but can be config
 - [x] **Agent Builder** — Master-detail UI at `/`.
 - [x] **File Tree** — Hierarchical explorer with search and download.
 - [x] **Token Guards** — Frontend pre-check + backend budget check.
+- [x] **Stream Resilience** — Duplicate runId protection, heartbeat keep-alive, connection drop detection with user-facing warnings.
+- [x] **Error Handling** — LLM errors, sub-agent failures, and upload errors surfaced in chat UI with dismissible banners.
+- [x] **Agent Hot-Reload** — Agent model and configuration changes applied without restarting the application.
+- [x] **UX Improvements** — Stop button, typing indicator, sidebar search, auto-clearing attachments, file size limits (10 MB), inline sub-agent output.
 
 ### v0.2 — Upcoming
 

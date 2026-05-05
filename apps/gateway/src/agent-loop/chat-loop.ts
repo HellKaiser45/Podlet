@@ -66,11 +66,13 @@ export class AgentChatLoop {
           this.context.frame.status = "completed";
           return this.context.frame;
         case AgentState.FAILED:
-          throw new Error("Agent failed");
+          this.context.frame.status = "error";
+          return this.context.frame;
       }
       iterations++;
     }
 
+    console.error('[chat-loop] Max iterations reached');
     this.appContainer.eventManager[this.context.input.runId].push({
       AgentId: this.agentDef.agentId,
       type: EventType.RUN_ERROR,
@@ -133,10 +135,13 @@ export class AgentChatLoop {
         this.transitionTo(AgentState.COMPLETED)
       }
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.context.error = errMsg;
+      console.error('[chat-loop] callLLM failed:', error);
       this.appContainer.eventManager[this.context.input.runId].push({
         AgentId: this.agentDef.agentId,
         type: EventType.RUN_ERROR,
-        message: `LLM call failed: ${error instanceof Error ? error.message : String(error)}`
+        message: `LLM call failed: ${errMsg}`
       });
       this.transitionTo(AgentState.FAILED);
       return;

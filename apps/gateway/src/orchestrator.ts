@@ -56,13 +56,18 @@ export class AgentOrchestrator {
       return false
     })
     if (res.status === 'error' || res.status === 'running') {
-      this.appContainer.eventManager[input.runId].push({
-        AgentId: input.agentId,
-        type: EventType.RUN_ERROR,
-        message: `orchestrator error ${res.status}`,
-        threadId: input.threadId,
-        runId: input.runId,
-      })
+      console.error(`[Orchestrator] Run ${input.runId} ended with status: ${res.status}`);
+      // The loop already emitted a descriptive RUN_ERROR for 'error' status
+      // Only emit our own for unexpected 'running' status
+      if (res.status === 'running') {
+        this.appContainer.eventManager[input.runId].push({
+          AgentId: input.agentId,
+          type: EventType.RUN_ERROR,
+          message: `Agent ended unexpectedly with status: running. This indicates a bug in the agent loop.`,
+          threadId: input.threadId,
+          runId: input.runId,
+        })
+      }
     }
     else {
       this.appContainer.eventManager[input.runId].push({
