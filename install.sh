@@ -46,13 +46,10 @@ if [ "$choice" == "1" ]; then
 
   echo "  Preparing Docker environment..."
 
-  # Create .env file with the user's Podlet data directory
-  PODLET_DIR="${HOME}/.podlet"
-  echo "PODLET_DIR=${PODLET_DIR}" > .env
-  echo "  Created .env with PODLET_DIR=${PODLET_DIR}"
-
   # Ensure the data directory exists
-  mkdir -p "${PODLET_DIR}"
+  mkdir -p "${HOME}/.podlet"
+
+  echo "  Data directory: ~/.podlet"
 
   echo ""
   echo "  Launching setup wizard via Docker..."

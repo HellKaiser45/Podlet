@@ -1,10 +1,11 @@
 # ============================================================
 # Podlet Docker Compose
 #
-# IMPORTANT: Create a .env file before running:
-#   echo "PODLET_DIR=$HOME/.podlet" > .env
+# No .env file needed for standard setups.
+# Podlet data is always at ~/.podlet (mounted to /root/.podlet).
 #
-# This ensures Docker can find your Podlet data directory.
+# Optional: override mount source via .env:
+#   echo "PODLET_DIR=/custom/path/.podlet" > .env
 # ============================================================
 
 services:
@@ -12,7 +13,7 @@ services:
     build:
       context: ./agent_core_py
     volumes:
-      - ${PODLET_DIR:?Set PODLET_DIR in .env file (see .env.docker.example)}:/root/.podlet
+      - ${PODLET_DIR:-~/.podlet}:/root/.podlet
     networks:
       - podlet-internal
     restart: unless-stopped
@@ -26,7 +27,7 @@ services:
       - PODLET_DOCKER=1
       - LLM_SERVICE_HOST=agent-core
     volumes:
-      - ${PODLET_DIR:?Set PODLET_DIR in .env file (see .env.docker.example)}:/root/.podlet
+      - ${PODLET_DIR:-~/.podlet}:/root/.podlet
     networks:
       - podlet-internal
     depends_on:
