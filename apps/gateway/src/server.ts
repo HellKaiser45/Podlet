@@ -11,6 +11,7 @@ import filesRoutes from './api-routes/files-routes';
 import { skillsRoutes } from "./api-routes/skills-routes";
 import promptsRoutes from './api-routes/prompts-routes';
 import cors from '@elysiajs/cors';
+import { staticPlugin } from '@elysiajs/static';
 import { VirtualFileSystem } from './system/sandbox';
 
 
@@ -110,10 +111,11 @@ export function chatRoutes(container: AppContainer) {
     })
 }
 
-export function createServer(container: AppContainer) {
-  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3002';
+export async function createServer(container: AppContainer) {
+  const corsOrigin = container.initConfig.corsOrigin;
+  const staticFrontend = container.initConfig.docker.staticFrontend;
 
-  return new Elysia({ prefix: '/api' })
+  const api = new Elysia({ prefix: '/api' })
     .use(openapi({
       documentation: {
         info: { title: 'Podlet API', version: '0.1.0' },
@@ -127,8 +129,20 @@ export function createServer(container: AppContainer) {
     .use(mcpsRoutes(container))
     .use(promptsRoutes(container))
     .use(filesRoutes(container))
-    .use(skillsRoutes(container))
-    .listen(container.initConfig.appPort);
+    .use(skillsRoutes(container));
+
+  if (staticFrontend) {
+    return new Elysia()
+      .use(api)
+      .use(await staticPlugin({
+        assets: '/app/frontend/dist',
+        prefix: '',
+        indexHTML: true,
+      }))
+      .listen(container.initConfig.appPort);
+  }
+
+  return api.listen(container.initConfig.appPort);
 }
 
 export async function cleanup(container: AppContainer) {

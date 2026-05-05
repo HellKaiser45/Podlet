@@ -12,6 +12,101 @@
 
 Podlet est un système d'orchestration haute performance conçu pour gérer des flux de travail d'agents IA complexes. En combinant une passerelle (Gateway) TypeScript rapide, un backend LLM Python flexible et une interface frontend SolidJS réactive, Podlet permet la création d'agents spécialisés capables de collaborer, d'utiliser des outils externes via MCP (Model Context Protocol) et d'opérer dans un système de fichiers virtuel sécurisé.
 
+## Démarrage Rapide
+
+### Docker (Recommandé)
+
+Prérequis : Docker et Docker Compose
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+# Choisissez l'option 1 (Docker)
+```
+
+Ou manuellement :
+
+```bash
+git clone https://github.com/HellKaiser45/Podlet.git
+cd Podlet
+docker compose run --rm gateway bun run init --docker
+docker compose up -d
+```
+
+Visitez http://localhost:3002
+
+### Installation Native
+
+Prérequis : Bun 1.0+ et Python 3.12+
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+# Choisissez l'option 2 (Native)
+```
+
+Ou manuellement :
+
+```bash
+git clone https://github.com/HellKaiser45/Podlet.git
+cd Podlet
+bun install
+bun run init
+bun run start
+```
+
+## Configuration Docker
+
+Toute la configuration réside dans un seul fichier `config.json` à l'intérieur du volume Docker.
+
+### Configuration du Port
+
+Copiez `.env.docker.example` vers `.env.docker` et ajustez :
+
+```env
+GATEWAY_PORT=3002    # Le port exposé sur votre machine
+```
+
+### Première Installation
+
+La commande `init --docker` vous demandera :
+- Le fournisseur LLM (OpenAI, Anthropic, Google, etc.) et les clés API
+- Le modèle par défaut à utiliser
+- Les serveurs MCP à activer
+- Le port à exposer (par défaut : 3002)
+
+### Gestion des Volumes
+
+Toutes les données persistent dans un volume nommé Docker :
+
+```bash
+# Inspecter le volume
+docker volume inspect podlet_podlet-data
+
+# Sauvegarde
+docker run --rm -v podlet_podlet-data:/data -v $(pwd):/backup alpine tar czf /backup/podlet-backup.tar.gz -C /data .
+
+# Réinitialisation (ATTENTION : supprime toutes les données)
+docker compose down -v
+```
+
+### Serveurs MCP
+
+Le conteneur gateway inclut `npx` (Node.js 20) et `uvx` (Python + uv) pour exécuter des serveurs d'outils MCP. Configurez les serveurs MCP pendant `init --docker` ou modifiez `mcp.json` dans le volume.
+
+### Mise à jour
+
+```bash
+git pull
+docker compose build --pull
+docker compose up -d
+```
+
+### Logs
+
+```bash
+docker compose logs -f gateway
+docker compose logs -f agent-core
+```
+
 ## Architecture
 
 ```text
@@ -27,58 +122,28 @@ Podlet est un système d'orchestration haute performance conçu pour gérer des 
                                                             (Recherche, Contexte, etc.)
 ```
 
-## Démarrage Rapide
+### Disposition du Réseau Docker
 
-### Linux / macOS
+```text
+Hôte
+└── localhost:3002
+    └── gateway (port 3000)
+        ├── Sert le frontend (fichiers statiques)
+        ├── Routes API (/api/*)
+        └── agent-core (port 8000, interne uniquement)
+            └── Appels API LLM
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+Volume : podlet-data → /podlet-data
+├── config.json, models.json, mcp.json
+├── .env (clés API)
+├── agents/, prompts/, skills/
+├── podlet.db (SQLite)
+└── workspace/ (fichiers par exécution)
 ```
-
-### Windows PowerShell
-
-```powershell
-irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 | iex
-```
-
-## Installation Manuelle
-
-### Prérequis
-
-- **Bun runtime** (dernière version)
-- **Python 3.10+**
-- **Git**
-
-### Installation
-
-1. **Cloner le dépôt**
-
-   ```bash
-   git clone https://github.com/HellKaiser45/Podlet.git
-   cd Podlet
-   ```
-
-2. **Initialiser le système**
-
-   ```bash
-   bun run init
-   ```
-
-   *Cet assistant interactif vérifie les prérequis, installe les dépendances et vous aide à configurer votre environnement.*
-3. **Lancer tous les services**
-
-   ```bash
-   bun run start
-   ```
-
-**Autres scripts disponibles :**
-
-- `bun run start:gateway` — Lance uniquement la Gateway.
-- `bun run start:python` — Lance uniquement le backend Python.
 
 ## Configuration
 
-Podlet utilise un répertoire de configuration dédié situé dans `~/.podlet/` (référencé comme `podeletDir` dans le code).
+Podlet utilise un répertoire de configuration dédié situé dans `~/.podlet/` (ou le volume Docker).
 
 | Fichier | Description |
 | :--- | :--- |
@@ -98,7 +163,8 @@ Podlet utilise un répertoire de configuration dédié situé dans `~/.podlet/` 
     "port": 3000,
     "host": "127.0.0.1",
     "pythonPort": 8000,
-    "webPort": 3002
+    "webPort": 3002,
+    "exposedPort": 3002
   },
   "database": {
     "path": "podlet.db"
@@ -110,21 +176,30 @@ Podlet utilise un répertoire de configuration dédié situé dans `~/.podlet/` 
     "safemode": true,
     "max_concurrent_agents": 5,
     "cors_origin": "http://localhost:3002"
+  },
+  "docker": {
+    "enabled": false,
+    "llmServiceHost": "localhost",
+    "staticFrontend": false
   }
 }
 ```
 
-| Champ | Description |
-| :--- | :--- |
-| `server.port` | Port de l'API Gateway. |
-| `server.host` | Adresse de liaison de la gateway. |
-| `server.pythonPort` | Port du backend Python LLM interne. |
-| `server.webPort` | Port du frontend web SolidJS. |
-| `database.path` | Chemin de la base SQLite (relatif à `~/.podlet/`). |
-| `logging.level` | Verbosité des logs (`debug`, `info`, `warn`, `error`). |
-| `features.safemode` | Active l'approbation HIL pour les outils destructeurs. |
-| `features.max_concurrent_agents` | Nombre maximal d'exécutions d'agents simultanées. |
-| `features.cors_origin` | Origine CORS autorisée pour le frontend. |
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `server.port` | nombre | `3000` | Port de l'API Gateway. |
+| `server.host` | chaîne | `"127.0.0.1"` | Adresse de liaison de la gateway (`0.0.0.0` dans Docker). |
+| `server.pythonPort` | nombre | `8000` | Port du backend Python LLM interne. |
+| `server.webPort` | nombre | `3002` | Port du frontend web SolidJS. |
+| `server.exposedPort` | nombre | même que `port` | Port visible pour l'utilisateur. |
+| `database.path` | chaîne | `"podlet.db"` | Chemin de la base SQLite. |
+| `logging.level` | chaîne | `"info"` | Verbosité des logs (`debug`, `info`, `warn`, `error`). |
+| `features.safemode` | booléen | `true` | Active l'approbation HIL pour les outils destructeurs. |
+| `features.max_concurrent_agents` | nombre | `5` | Nombre maximal d'exécutions d'agents simultanées. |
+| `features.cors_origin` | chaîne | `"http://localhost:3002"` | Origine CORS autorisée pour le frontend. |
+| `docker.enabled` | booléen | `false` | Indicateur du mode Docker. |
+| `docker.llmServiceHost` | chaîne | `"localhost"` | Nom d'hôte du service Python. |
+| `docker.staticFrontend` | booléen | `false` | La Gateway sert le frontend. |
 
 ## Agents
 
@@ -362,6 +437,7 @@ L'interface web est accessible sur `http://localhost:3002` par défaut mais peut
 - [x] **Constructeur d'Agents** — Interface maître-détail à `/`.
 - [x] **Arborescence de Fichiers** — Explorateur hiérarchique avec recherche et téléchargement.
 - [x] **Gardiens de Tokens** — Pré-vérification frontend + contrôle backend.
+- [x] **Déploiement Docker** — `docker-compose` pour une installation en production.
 
 ### v0.2 — Prochainement
 
@@ -371,7 +447,6 @@ L'interface web est accessible sur `http://localhost:3002` par défaut mais peut
 ### v0.3 — Planifié
 
 - [ ] **Isolation VFS Totale** — Sandbox type chroot sans vecteur d'évasion.
-- [ ] **Déploiement Docker** — `docker-compose` pour une installation en production.
 - [ ] **Configuration Versionnée** — Système de migration pour les mises à jour.
 - [ ] **Compaction de l'Historique** — Résumé automatique des conversations longues.
 

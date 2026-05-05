@@ -8,6 +8,7 @@
   "dependencies": {
     "@ag-ui/core": "^0.0.48",
     "@elysiajs/cors": "^1.4.1",
+    "@elysiajs/static": "^1.4.10",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",

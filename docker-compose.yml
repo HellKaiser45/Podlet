@@ -1,0 +1,42 @@
+services:
+  agent-core:
+    build:
+      context: ./agent_core_py
+    environment:
+      - PODLET_DIR=/podlet-data
+    volumes:
+      - ${HOME}/.podlet:/podlet-data
+    networks:
+      - podlet-internal
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+    ports:
+      - "${GATEWAY_PORT:-3002}:3000"
+    environment:
+      - PODLET_DIR=/podlet-data
+      - PODLET_DOCKER=1
+      - LLM_SERVICE_HOST=agent-core
+    volumes:
+      - ${HOME}/.podlet:/podlet-data
+    networks:
+      - podlet-internal
+    depends_on:
+      - agent-core
+    restart: on-failure
+    tty: true
+    stdin_open: true
+
+  # Alternative: Use a named Docker volume for full isolation
+  # Uncomment the lines below and remove the bind mounts above
+  #
+  # volumes:
+  #   podlet-data:
+  #
+  # Then change volume lines to:
+  #   - podlet-data:/podlet-data
+
+networks:
+  podlet-internal:

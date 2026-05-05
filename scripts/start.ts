@@ -5,7 +5,7 @@ import * as os from 'os';
 
 const isWin = process.platform === 'win32';
 const repoRoot = path.resolve(import.meta.dir, '..');
-const podletDir = path.join(os.homedir(), '.podlet');
+const podletDir = process.env.PODLET_DIR || path.join(os.homedir(), '.podlet');
 
 // ── Read config once ─────────────────────────────────────
 
@@ -20,6 +20,8 @@ const gatewayPort = config.server?.port ?? 3000;
 const pythonPort = config.server?.pythonPort ?? 8000;
 const webPort = config.server?.webPort ?? 3002;
 const host = config.server?.host ?? '127.0.0.1';
+const dockerEnabled = config.docker?.enabled ?? false;
+const exposedPort = config.server?.exposedPort ?? webPort;
 
 // ── Track children ───────────────────────────────────────
 
@@ -58,26 +60,34 @@ async function main() {
   console.log('  ╚════════════════════════════════════════╝');
   console.log('');
 
-  // 1. Python / FastAPI backend
-  const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
-  if (!existsSync(venvDir)) {
-    console.error('  [!] Python venv not found. Run "bun run init" first.');
-    process.exit(1);
+  if (dockerEnabled) {
+    console.log('  Running in Docker mode. Only starting gateway.');
+    console.log('  Other services are managed by Docker Compose.');
+    console.log('');
   }
 
-  const pythonBin = isWin
-    ? path.join(venvDir, 'Scripts', 'python.exe')
-    : path.join(venvDir, 'bin', 'python');
+  if (!dockerEnabled) {
+    // 1. Python / FastAPI backend
+    const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
+    if (!existsSync(venvDir)) {
+      console.error('  [!] Python venv not found. Run "bun run init" first.');
+      process.exit(1);
+    }
 
-  console.log('  [python] Starting on ' + host + ':' + pythonPort);
-  start('python', pythonBin, [
-    '-m', 'uvicorn', 'main:app',
-    '--host', host,
-    '--port', String(pythonPort),
-  ], { cwd: path.join(repoRoot, 'agent_core_py') });
+    const pythonBin = isWin
+      ? path.join(venvDir, 'Scripts', 'python.exe')
+      : path.join(venvDir, 'bin', 'python');
 
-  // Wait for Python to bind
-  await new Promise((r) => setTimeout(r, 2000));
+    console.log('  [python] Starting on ' + host + ':' + pythonPort);
+    start('python', pythonBin, [
+      '-m', 'uvicorn', 'main:app',
+      '--host', host,
+      '--port', String(pythonPort),
+    ], { cwd: path.join(repoRoot, 'agent_core_py') });
+
+    // Wait for Python to bind
+    await new Promise((r) => setTimeout(r, 2000));
+  }
 
   // 2. Gateway (Elysia/Bun)
   console.log('  [gateway] Starting on ' + host + ':' + gatewayPort);
@@ -90,20 +100,26 @@ async function main() {
 
   await new Promise((r) => setTimeout(r, 1000));
 
-  // 3. Web UI (SolidJS / Vite dev server)
-  console.log('  [web] Starting on http://localhost:' + webPort);
-  start('web', 'bun', [
-    'run', '--filter', '@podlet/web', 'dev',
-  ], {
-    cwd: repoRoot,
-    env: { ...process.env, PORT: String(webPort) },
-  });
+  if (!dockerEnabled) {
+    // 3. Web UI (SolidJS / Vite dev server)
+    console.log('  [web] Starting on http://localhost:' + webPort);
+    start('web', 'bun', [
+      'run', '--filter', '@podlet/web', 'dev',
+    ], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: String(webPort) },
+    });
+  }
 
   console.log('');
   console.log('  ─────────────────────────────────────────');
-  console.log('  Gateway:    http://localhost:' + gatewayPort);
-  console.log('  Python LLM: http://localhost:' + pythonPort);
-  console.log('  Web UI:     http://localhost:' + webPort);
+  if (dockerEnabled) {
+    console.log('  Frontend available at: http://localhost:' + exposedPort);
+  } else {
+    console.log('  Gateway:    http://localhost:' + gatewayPort);
+    console.log('  Python LLM: http://localhost:' + pythonPort);
+    console.log('  Web UI:     http://localhost:' + webPort);
+  }
   console.log('  ─────────────────────────────────────────');
   console.log('  Press Ctrl+C to stop all services.');
   console.log('');

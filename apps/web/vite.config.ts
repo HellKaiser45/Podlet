@@ -6,6 +6,12 @@ import { prodConfig } from '@podlet/config';
 
 
 
+const apiUrl = 'VITE_API_URL' in process.env
+  ? process.env.VITE_API_URL!
+  : (prodConfig.docker.enabled && prodConfig.docker.staticFrontend)
+    ? ""
+    : `http://localhost:${prodConfig.appPort}`;
+
 export default defineConfig({
   plugins: [devtools(), solidPlugin(), tailwindcss()],
   server: {
@@ -15,6 +21,7 @@ export default defineConfig({
     target: 'esnext',
   },
   define: {
-    'process.env.API_URL': JSON.stringify(`http://localhost:${prodConfig.appPort}`)
+    'process.env.API_URL': JSON.stringify(apiUrl),
+    'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl),
   }
 });

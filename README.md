@@ -12,6 +12,101 @@
 
 Podlet is a high-performance, modular orchestration system designed to manage complex AI agent workflows. By combining a fast TypeScript gateway, a flexible Python LLM backend, and a reactive SolidJS frontend, Podlet enables the creation of specialized agents that can collaborate, use external tools via MCP (Model Context Protocol), and operate within a secure virtual filesystem.
 
+## Quick Start
+
+### Docker (Recommended)
+
+Prerequisites: Docker and Docker Compose
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+# Choose option 1 (Docker)
+```
+
+Or manually:
+
+```bash
+git clone https://github.com/HellKaiser45/Podlet.git
+cd Podlet
+docker compose run --rm gateway bun run init --docker
+docker compose up -d
+```
+
+Visit http://localhost:3002
+
+### Native Installation
+
+Prerequisites: Bun 1.0+ and Python 3.12+
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+# Choose option 2 (Native)
+```
+
+Or manually:
+
+```bash
+git clone https://github.com/HellKaiser45/Podlet.git
+cd Podlet
+bun install
+bun run init
+bun run start
+```
+
+## Docker Configuration
+
+All configuration lives in a single `config.json` file inside the Docker volume.
+
+### Port Configuration
+
+Copy `.env.docker.example` to `.env.docker` and adjust:
+
+```env
+GATEWAY_PORT=3002    # The port exposed on your machine
+```
+
+### First-Time Setup
+
+The `init --docker` command will ask you:
+- LLM provider (OpenAI, Anthropic, Google, etc.) and API keys
+- Default model to use
+- MCP servers to enable
+- Port to expose (default: 3002)
+
+### Volume Management
+
+All data persists in a Docker named volume:
+
+```bash
+# Inspect volume
+docker volume inspect podlet_podlet-data
+
+# Backup
+docker run --rm -v podlet_podlet-data:/data -v $(pwd):/backup alpine tar czf /backup/podlet-backup.tar.gz -C /data .
+
+# Reset (WARNING: deletes all data)
+docker compose down -v
+```
+
+### MCP Servers
+
+The gateway container includes `npx` (Node.js 20) and `uvx` (Python + uv) for running MCP tool servers. Configure MCP servers during `init --docker` or edit `mcp.json` in the volume.
+
+### Updating
+
+```bash
+git pull
+docker compose build --pull
+docker compose up -d
+```
+
+### Logs
+
+```bash
+docker compose logs -f gateway
+docker compose logs -f agent-core
+```
+
 ## Architecture
 
 ```text
@@ -27,58 +122,28 @@ Podlet is a high-performance, modular orchestration system designed to manage co
                                                      (Search, Context, etc.)
 ```
 
-## Quick Start
+### Docker Network Layout
 
-### Linux / macOS
+```text
+Host
+└── localhost:3002
+    └── gateway (port 3000)
+        ├── Serves frontend (static files)
+        ├── API routes (/api/*)
+        └── agent-core (port 8000, internal only)
+            └── LLM API calls
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+Volume: podlet-data → /podlet-data
+├── config.json, models.json, mcp.json
+├── .env (API keys)
+├── agents/, prompts/, skills/
+├── podlet.db (SQLite)
+└── workspace/ (per-run files)
 ```
-
-### Windows PowerShell
-
-```powershell
-irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 | iex
-```
-
-## Manual Setup
-
-### Prerequisites
-
-- **Bun runtime** (latest)
-- **Python 3.10+**
-- **Git**
-
-### Installation
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/HellKaiser45/Podlet.git
-   cd Podlet
-   ```
-
-2. **Initialize the system**
-
-   ```bash
-   bun run init
-   ```
-
-   *This interactive wizard checks prerequisites, installs dependencies, and helps you configure your environment.*
-3. **Start all services**
-
-   ```bash
-   bun run start
-   ```
-
-**Other available scripts:**
-
-- `bun run start:gateway` — Launch only the Gateway.
-- `bun run start:python` — Launch only the Python backend.
 
 ## Configuration
 
-Podlet uses a dedicated configuration directory located at `~/.podlet/` (referenced as `podeletDir` in code).
+Podlet uses a dedicated configuration directory located at `~/.podlet/` (or the Docker volume).
 
 | File | Description |
 | :--- | :--- |
@@ -98,7 +163,8 @@ Podlet uses a dedicated configuration directory located at `~/.podlet/` (referen
     "port": 3000,
     "host": "127.0.0.1",
     "pythonPort": 8000,
-    "webPort": 3002
+    "webPort": 3002,
+    "exposedPort": 3002
   },
   "database": {
     "path": "podlet.db"
@@ -110,21 +176,30 @@ Podlet uses a dedicated configuration directory located at `~/.podlet/` (referen
     "safemode": true,
     "max_concurrent_agents": 5,
     "cors_origin": "http://localhost:3002"
+  },
+  "docker": {
+    "enabled": false,
+    "llmServiceHost": "localhost",
+    "staticFrontend": false
   }
 }
 ```
 
-| Field | Description |
-| :--- | :--- |
-| `server.port` | Gateway API port. |
-| `server.host` | Bind address for the gateway. |
-| `server.pythonPort` | Port for the internal Python LLM backend. |
-| `server.webPort` | Port for the SolidJS web frontend. |
-| `database.path` | SQLite database file path (relative to `~/.podlet/`). |
-| `logging.level` | Log verbosity (`debug`, `info`, `warn`, `error`). |
-| `features.safemode` | Enable Human-in-the-Loop (HIL) approval for destructive tools. |
-| `features.max_concurrent_agents` | Maximum number of simultaneous agent runs. |
-| `features.cors_origin` | Allowed CORS origin for the frontend. Can be overridden with the `CORS_ORIGIN` environment variable. |
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `server.port` | number | `3000` | Gateway API port. |
+| `server.host` | string | `"127.0.0.1"` | Bind address (`0.0.0.0` in Docker). |
+| `server.pythonPort` | number | `8000` | Port for the internal Python LLM backend. |
+| `server.webPort` | number | `3002` | Port for the SolidJS web frontend. |
+| `server.exposedPort` | number | same as `port` | Port visible to user. |
+| `database.path` | string | `"podlet.db"` | SQLite database file path. |
+| `logging.level` | string | `"info"` | Log verbosity (`debug`, `info`, `warn`, `error`). |
+| `features.safemode` | boolean | `true` | Enable Human-in-the-Loop (HIL) approval for destructive tools. |
+| `features.max_concurrent_agents` | number | `5` | Maximum number of simultaneous agent runs. |
+| `features.cors_origin` | string | `"http://localhost:3002"` | Allowed CORS origin for the frontend. |
+| `docker.enabled` | boolean | `false` | Docker mode flag. |
+| `docker.llmServiceHost` | string | `"localhost"` | Python service hostname. |
+| `docker.staticFrontend` | boolean | `false` | Gateway serves frontend. |
 
 ## Agents
 
@@ -362,6 +437,9 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 - **Network Exposure**: The gateway binds to `127.0.0.1` by default. Do not change this to `0.0.0.0` unless you understand the risks — all API endpoints are unauthenticated and would be accessible to anyone on the network.
 - **CORS**: The allowed origin is configurable via `features.cors_origin` in `config.json` (or the `CORS_ORIGIN` environment variable). Default is `http://localhost:3002`.
 - **Virtual Filesystem**: Agents are sandboxed to `workspace://` (read-only) and `artifacts://` (read-write). Prompt file paths are validated to prevent path traversal outside the prompts directory.
+- **Docker Isolation**: In Docker mode, backends run on an internal network unreachable from the host. Only the gateway port is published.
+- **Volume Isolation**: Agent file operations are scoped to the Docker volume. Agents cannot access the host filesystem directly.
+- **API Keys**: Stored in `.env` inside the volume. Protect your volume accordingly.
 - **Prompt Injection**: As with any LLM-based system, prompt injection is a potential risk. Agent prompts, file contents, and MCP tool results are all part of the context window. Be cautious when:
   - Agents read untrusted files or user inputs that may contain injection payloads.
   - MCP servers return results that could manipulate agent behavior.
@@ -370,6 +448,7 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 - **Agent Deletion Protection**: Agents cannot be deleted while they have active streams running.
 - **Human-in-the-Loop**: Enable `features.safemode` in `config.json` to require explicit user approval before destructive tool calls execute.
 - **Tool Execution**: Shell commands run inside the agent sandbox. While the VFS provides isolation, commands can still access the host system. Review tool calls in HIL mode for untrusted agents.
+- **MCP servers**: Third-party MCP servers run with the same privileges as the gateway container. Only enable servers you trust.
 
 ## Tech Stack
 
@@ -395,6 +474,7 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 - [x] **Error Handling** — LLM errors, sub-agent failures, and upload errors surfaced in chat UI with dismissible banners.
 - [x] **Agent Hot-Reload** — Agent model and configuration changes applied without restarting the application.
 - [x] **UX Improvements** — Stop button, typing indicator, sidebar search, auto-clearing attachments, file size limits (10 MB), inline sub-agent output.
+- [x] **Docker Deployment** — `docker-compose` for production-ready setup.
 
 ### v0.2 — Upcoming
 
@@ -404,7 +484,6 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 ### v0.3 — Planned
 
 - [ ] **Full VFS Isolation** — Chroot-like sandboxing with zero escape vectors.
-- [ ] **Docker Deployment** — `docker-compose` for production-ready setup.
 - [ ] **Versioned Config** — Migration system for configuration upgrades.
 - [ ] **History Compaction** — Automatic summarization of long conversations.
 

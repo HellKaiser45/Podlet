@@ -3,8 +3,18 @@ import { homedir } from 'os';
 import type { AppConfig, ConfigFile } from '@podlet/types';
 
 async function loadConfig(): Promise<AppConfig> {
-  const podeletDir = join(homedir(), '.podlet');
-  const configPath = join(podeletDir, 'config.json');
+  const podeletDir = process.env.PODLET_DIR
+    ?? undefined as string | undefined;
+
+  const resolveDir = (configFile: ConfigFile): string => {
+    if (podeletDir) return podeletDir;
+    if (configFile.server?.dataDir) return configFile.server.dataDir;
+    return join(homedir(), '.podlet');
+  };
+
+  // First pass: resolve dir so we can read config
+  const tmpDir = podeletDir ?? join(homedir(), '.podlet');
+  const configPath = join(tmpDir, 'config.json');
 
   let configFile: ConfigFile = {};
 
@@ -17,29 +27,72 @@ async function loadConfig(): Promise<AppConfig> {
     // Fallback to defaults if file is missing or invalid JSON
   }
 
-  const pythonPort = configFile.server?.pythonPort ?? 8000;
-  const host = configFile.server?.host ?? '127.0.0.1';
+  const finalDir = resolveDir(configFile);
+
+  // If dir changed due to configFile.server.dataDir, re-read config from there
+  if (finalDir !== tmpDir) {
+    const altPath = join(finalDir, 'config.json');
+    try {
+      const file = Bun.file(altPath);
+      if (await file.exists()) {
+        configFile = await file.json();
+      }
+    } catch {
+      // keep existing configFile
+    }
+  }
+
+  let pythonPort = configFile.server?.pythonPort ?? 8000;
+  let host = configFile.server?.host ?? '127.0.0.1';
   const appPort = configFile.server?.port ?? 3000;
   const webPort = configFile.server?.webPort ?? 3002;
   const dbName = configFile.database?.path ?? 'podlet.db';
   const logLevel = configFile.logging?.level ?? 'info';
   const maxConcurrentAgents = configFile.features?.max_concurrent_agents ?? 5;
-  const corsOrigin = configFile.features?.cors_origin ?? 'http://localhost:3002';
   const safemode = configFile.features?.safemode ?? false;
 
+  let docker = {
+    enabled: configFile.docker?.enabled ?? false,
+    llmServiceHost: configFile.docker?.llmServiceHost ?? 'localhost',
+    staticFrontend: configFile.docker?.staticFrontend ?? false,
+  };
+
+  let exposedPort = configFile.server?.exposedPort ?? webPort;
+  const llmApiUrl = `http://${docker.llmServiceHost}:${pythonPort}`;
+  const corsOrigin = configFile.features?.cors_origin ?? ('http://localhost:' + exposedPort);
+
+  // Docker overlay: override settings for container runtime without modifying config.json
+  const isDocker = process.env.PODLET_DOCKER === '1';
+  if (isDocker) {
+    host = '0.0.0.0';
+    docker.enabled = true;
+    docker.llmServiceHost = process.env.LLM_SERVICE_HOST || 'agent-core';
+    docker.staticFrontend = true;
+  }
+
+  // Recompute derived values if Docker overrides changed them
+  const finalLLmApiUrl = isDocker
+    ? `http://${docker.llmServiceHost}:${pythonPort}`
+    : llmApiUrl;
+  const finalCorsOrigin = isDocker
+    ? ('http://localhost:' + exposedPort)
+    : corsOrigin;
+
   return {
-    podeletDir,
+    podeletDir: finalDir,
     dbName,
-    llmApiUrl: process.env.LLM_API_URL ?? ('http://localhost:' + pythonPort),
+    llmApiUrl: finalLLmApiUrl,
     appPort,
+    exposedPort,
     enableWatchers: true,
     safemode,
     pythonPort,
     webPort,
     logLevel,
     maxConcurrentAgents,
-    corsOrigin,
+    corsOrigin: finalCorsOrigin,
     host,
+    docker,
   };
 }
 

@@ -5,8 +5,9 @@ import * as os from 'os';
 import * as readline from 'readline';
 
 const repoRoot = path.resolve(import.meta.dir, '..');
-const podletDir = path.join(os.homedir(), '.podlet');
+const podletDir = process.env.PODLET_DIR || path.join(os.homedir(), '.podlet');
 const isWin = process.platform === 'win32';
+const isDocker = process.argv.includes('--docker');
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -67,42 +68,46 @@ async function main() {
   console.log('║          PODLET Setup Wizard           ║');
   console.log('╚════════════════════════════════════════╝\n');
 
-  // ── Prerequisites ────────────────────────────────────
-  try {
-    const v = getOutput('bun', ['-v']);
-    console.log(`  [ok] Bun ${v}`);
-  } catch {
-    console.error('  [!] Bun not found. Install: https://bun.sh');
-    process.exit(1);
-  }
-
-  const pyCmd = isWin ? 'python' : 'python3';
-  try {
-    const raw = getOutput(pyCmd, ['--version']);
-    const m = raw.match(/(\d+)\.(\d+)/);
-    if (!m || +m[1] < 3 || (+m[1] === 3 && +m[2] < 10)) {
-      throw new Error(`Python >= 3.10 required, got: ${raw}`);
+  if (isDocker) {
+    console.log('  Running in Docker mode – skipping prerequisite checks.\n');
+  } else {
+    // ── Prerequisites ────────────────────────────────────
+    try {
+      const v = getOutput('bun', ['-v']);
+      console.log(`  [ok] Bun ${v}`);
+    } catch {
+      console.error('  [!] Bun not found. Install: https://bun.sh');
+      process.exit(1);
     }
-    console.log(`  [ok] ${raw}`);
-  } catch (e: any) {
-    console.error(`  [!] ${e.message || 'Python 3.10+ not found.'} Install: https://www.python.org`);
-    process.exit(1);
-  }
 
-  // ── JS deps ──────────────────────────────────────────
-  console.log('\n  Installing JS dependencies...');
-  await run('bun', ['install'], { cwd: repoRoot });
+    const pyCmd = isWin ? 'python' : 'python3';
+    try {
+      const raw = getOutput(pyCmd, ['--version']);
+      const m = raw.match(/(\d+)\.(\d+)/);
+      if (!m || +m[1] < 3 || (+m[1] === 3 && +m[2] < 10)) {
+        throw new Error(`Python >= 3.10 required, got: ${raw}`);
+      }
+      console.log(`  [ok] ${raw}`);
+    } catch (e: any) {
+      console.error(`  [!] ${e.message || 'Python 3.10+ not found.'} Install: https://www.python.org`);
+      process.exit(1);
+    }
 
-  // ── Python venv ──────────────────────────────────────
-  console.log('  Setting up Python virtual environment...');
-  const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
-  if (!existsSync(venvDir)) {
-    await run(pyCmd, ['-m', 'venv', venvDir], { cwd: repoRoot });
+    // ── JS deps ──────────────────────────────────────────
+    console.log('\n  Installing JS dependencies...');
+    await run('bun', ['install'], { cwd: repoRoot });
+
+    // ── Python venv ──────────────────────────────────────
+    console.log('  Setting up Python virtual environment...');
+    const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
+    if (!existsSync(venvDir)) {
+      await run(pyCmd, ['-m', 'venv', venvDir], { cwd: repoRoot });
+    }
+    const pip = isWin
+      ? path.join(venvDir, 'Scripts', 'pip.exe')
+      : path.join(venvDir, 'bin', 'pip');
+    await run(pip, ['install', '-r', path.join(repoRoot, 'agent_core_py', 'requirements.txt')], { cwd: repoRoot });
   }
-  const pip = isWin
-    ? path.join(venvDir, 'Scripts', 'pip.exe')
-    : path.join(venvDir, 'bin', 'pip');
-  await run(pip, ['install', '-r', path.join(repoRoot, 'agent_core_py', 'requirements.txt')], { cwd: repoRoot });
 
   // ── Existing config check ────────────────────────────
   if (existsSync(path.join(podletDir, 'config.json'))) {
@@ -120,9 +125,10 @@ async function main() {
   // ── Prompts ──────────────────────────────────────────
   console.log('\n  Configuration\n  ─────────────');
 
-  const gatewayPort  = Number(await ask('Gateway port', '3000'));
+  const gatewayPort  = Number(await ask('Gateway port', isDocker ? '3000' : '3000'));
   const pythonPort   = Number(await ask('Python backend port', '8000'));
-  const webPort      = Number(await ask('Web UI port', '3002'));
+  const webPort      = Number(await ask('Web UI port', isDocker ? '3002' : '3002'));
+  const exposedPort  = isDocker ? Number(await ask('Exposed port (host)', '3002')) : webPort;
   const hilEnabled   = await askYesNo('Enable Human-in-the-Loop (HIL)', true);
   const maxAgents    = Number(await ask('Max concurrent agents', '5'));
 
@@ -158,12 +164,16 @@ async function main() {
   mkdirSync(path.join(podletDir, 'prompts'), { recursive: true });
 
   // config.json
-  writeFileSync(path.join(podletDir, 'config.json'), JSON.stringify({
-    server:   { port: gatewayPort, host: '127.0.0.1', pythonPort, webPort, cors_enabled: true },
+  const configJson: Record<string, any> = {
+    server:   { port: gatewayPort, host: isDocker ? '0.0.0.0' : '127.0.0.1', pythonPort, webPort, ...(isDocker ? { exposedPort } : {}), cors_enabled: true },
     database: { path: 'podlet.db' },
     logging:  { level: 'info' },
-    features: { hil_enabled: hilEnabled, max_concurrent_agents: maxAgents, cors_origin: 'http://localhost:' + webPort },
-  }, null, 2));
+    features: { hil_enabled: hilEnabled, max_concurrent_agents: maxAgents, cors_origin: 'http://localhost:' + (isDocker ? exposedPort : webPort) },
+  };
+  if (isDocker) {
+    configJson.docker = { enabled: true, llmServiceHost: 'agent-core', staticFrontend: true };
+  }
+  writeFileSync(path.join(podletDir, 'config.json'), JSON.stringify(configJson, null, 2));
 
   // models.json
   const modelsJson: Record<string, any> = {};
@@ -215,12 +225,18 @@ async function main() {
   const skillsSrc  = path.join(repoRoot, '.podlet', 'skills');
   const skillsDest = path.join(podletDir, 'skills');
   if (existsSync(skillsSrc) && !existsSync(skillsDest)) {
-    try {
-      symlinkSync(skillsSrc, skillsDest, isWin ? 'junction' : 'dir');
-    } catch {
-      // Windows may require admin for symlinks -- fall back to recursive copy
-      console.log('  Symlink failed, copying skills directory...');
+    if (isDocker) {
+      // Docker volumes don't support symlinks well – always copy
+      console.log('  Copying skills directory...');
       cpSync(skillsSrc, skillsDest, { recursive: true });
+    } else {
+      try {
+        symlinkSync(skillsSrc, skillsDest, isWin ? 'junction' : 'dir');
+      } catch {
+        // Windows may require admin for symlinks -- fall back to recursive copy
+        console.log('  Symlink failed, copying skills directory...');
+        cpSync(skillsSrc, skillsDest, { recursive: true });
+      }
     }
   }
 
@@ -230,14 +246,24 @@ async function main() {
   console.log('\n  [ok] Podlet setup complete!\n');
   console.log('  Configuration: ' + podletDir);
   console.log('');
-  console.log('  Services:');
-  console.log('    Gateway:    http://localhost:' + gatewayPort);
-  console.log('    Python LLM: http://localhost:' + pythonPort);
-  console.log('    Web UI:     http://localhost:' + webPort);
-  console.log('');
-  console.log('  Next steps:');
-  console.log('    cd ' + repoRoot);
-  console.log('    bun run start');
+
+  if (isDocker) {
+    console.log('  Configuration complete!');
+    console.log('');
+    console.log('  Next steps:');
+    console.log('    docker compose up -d');
+    console.log('');
+    console.log('  Then visit: http://localhost:' + exposedPort);
+  } else {
+    console.log('  Services:');
+    console.log('    Gateway:    http://localhost:' + gatewayPort);
+    console.log('    Python LLM: http://localhost:' + pythonPort);
+    console.log('    Web UI:     http://localhost:' + webPort);
+    console.log('');
+    console.log('  Next steps:');
+    console.log('    cd ' + repoRoot);
+    console.log('    bun run start');
+  }
   console.log('');
 }
 

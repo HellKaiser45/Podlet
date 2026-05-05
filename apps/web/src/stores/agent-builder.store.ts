@@ -32,7 +32,7 @@ export interface SkillInfo {
 
 // ─── Base URL ─────────────────────────────────────────────────────────────────
 
-const BASE = (import.meta.env?.VITE_API_URL ?? "http://localhost:3000") + "/api";
+const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:3000") + "/api";
 
 // ─── API Functions ────────────────────────────────────────────────────────────
 

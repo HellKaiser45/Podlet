@@ -5,7 +5,7 @@ import { createServer, cleanup } from './server';
 const container = new AppContainer(prodConfig)
 await container.init()
 
-export const app = createServer(container)
+export const app = await createServer(container)
 export type App = typeof app
 
 process.on("SIGINT", () => cleanup(container));
