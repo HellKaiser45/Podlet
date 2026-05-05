@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as readline from 'readline';
 
 const repoRoot = path.resolve(import.meta.dir, '..');
-const podletDir = process.env.PODLET_DIR || path.join(os.homedir(), '.podlet');
+const podletDir = path.join(os.homedir(), '.podlet');
 const isWin = process.platform === 'win32';
 const isDocker = process.argv.includes('--docker');
 

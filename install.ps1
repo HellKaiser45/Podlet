@@ -44,7 +44,10 @@ if ($choice -eq "1") {
   }
 
   Write-Host "  Preparing Docker environment..."
-  Copy-Item ".env.docker.example" ".env.docker"
+
+  $PodletDir = Join-Path $env:USERPROFILE ".podlet"
+  "PODLET_DIR=$PodletDir" | Out-File -Encoding utf8 .env
+  Write-Host "  Created .env with PODLET_DIR=$PodletDir"
 
   Write-Host ""
   Write-Host "  Launching setup wizard via Docker..."

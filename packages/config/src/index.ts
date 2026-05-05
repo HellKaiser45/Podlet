@@ -3,18 +3,8 @@ import { homedir } from 'os';
 import type { AppConfig, ConfigFile } from '@podlet/types';
 
 async function loadConfig(): Promise<AppConfig> {
-  const podeletDir = process.env.PODLET_DIR
-    ?? undefined as string | undefined;
-
-  const resolveDir = (configFile: ConfigFile): string => {
-    if (podeletDir) return podeletDir;
-    if (configFile.server?.dataDir) return configFile.server.dataDir;
-    return join(homedir(), '.podlet');
-  };
-
-  // First pass: resolve dir so we can read config
-  const tmpDir = podeletDir ?? join(homedir(), '.podlet');
-  const configPath = join(tmpDir, 'config.json');
+  const podeletDir = join(homedir(), '.podlet');
+  const configPath = join(podeletDir, 'config.json');
 
   let configFile: ConfigFile = {};
 
@@ -25,21 +15,6 @@ async function loadConfig(): Promise<AppConfig> {
     }
   } catch {
     // Fallback to defaults if file is missing or invalid JSON
-  }
-
-  const finalDir = resolveDir(configFile);
-
-  // If dir changed due to configFile.server.dataDir, re-read config from there
-  if (finalDir !== tmpDir) {
-    const altPath = join(finalDir, 'config.json');
-    try {
-      const file = Bun.file(altPath);
-      if (await file.exists()) {
-        configFile = await file.json();
-      }
-    } catch {
-      // keep existing configFile
-    }
   }
 
   let pythonPort = configFile.server?.pythonPort ?? 8000;
@@ -79,7 +54,7 @@ async function loadConfig(): Promise<AppConfig> {
     : corsOrigin;
 
   return {
-    podeletDir: finalDir,
+    podeletDir: podeletDir,
     dbName,
     llmApiUrl: finalLLmApiUrl,
     appPort,

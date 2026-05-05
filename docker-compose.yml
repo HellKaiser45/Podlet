@@ -1,11 +1,18 @@
+# ============================================================
+# Podlet Docker Compose
+#
+# IMPORTANT: Create a .env file before running:
+#   echo "PODLET_DIR=$HOME/.podlet" > .env
+#
+# This ensures Docker can find your Podlet data directory.
+# ============================================================
+
 services:
   agent-core:
     build:
       context: ./agent_core_py
-    environment:
-      - PODLET_DIR=/podlet-data
     volumes:
-      - ${HOME}/.podlet:/podlet-data
+      - ${PODLET_DIR:?Set PODLET_DIR in .env file (see .env.docker.example)}:/root/.podlet
     networks:
       - podlet-internal
     restart: unless-stopped
@@ -16,11 +23,10 @@ services:
     ports:
       - "${GATEWAY_PORT:-3002}:3000"
     environment:
-      - PODLET_DIR=/podlet-data
       - PODLET_DOCKER=1
       - LLM_SERVICE_HOST=agent-core
     volumes:
-      - ${HOME}/.podlet:/podlet-data
+      - ${PODLET_DIR:?Set PODLET_DIR in .env file (see .env.docker.example)}:/root/.podlet
     networks:
       - podlet-internal
     depends_on:
@@ -28,15 +34,6 @@ services:
     restart: on-failure
     tty: true
     stdin_open: true
-
-  # Alternative: Use a named Docker volume for full isolation
-  # Uncomment the lines below and remove the bind mounts above
-  #
-  # volumes:
-  #   podlet-data:
-  #
-  # Then change volume lines to:
-  #   - podlet-data:/podlet-data
 
 networks:
   podlet-internal:

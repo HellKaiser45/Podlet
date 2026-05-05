@@ -5,7 +5,7 @@ import * as os from 'os';
 
 const isWin = process.platform === 'win32';
 const repoRoot = path.resolve(import.meta.dir, '..');
-const podletDir = process.env.PODLET_DIR || path.join(os.homedir(), '.podlet');
+const podletDir = path.join(os.homedir(), '.podlet');
 
 // ── Read config once ─────────────────────────────────────
 

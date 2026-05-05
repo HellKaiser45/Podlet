@@ -24,7 +24,6 @@ export interface ConfigFile {
     pythonPort?: number;
     webPort?: number;
     exposedPort?: number;
-    dataDir?: string;
     cors_enabled?: boolean;
   };
   database?: {
