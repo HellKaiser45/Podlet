@@ -41,6 +41,7 @@ export function chatRoutes(container: AppContainer) {
         try {
           console.log('[Route] Abort signal received. Closing stream...');
           await stream.close();
+          delete container.eventManager[body.runId];
           console.log('[Route] Stream closed successfully.');
         } catch (err) {
           console.error('[Route] ERROR during abort cleanup:', err);
@@ -56,10 +57,10 @@ export function chatRoutes(container: AppContainer) {
           });
         })
         .finally(() => {
-          stream.close().catch((err) => {
-            console.error('[route] stream.close() failed:', err);
-          });
-          delete container.eventManager[body.runId];
+          stream.close().catch(() => {});
+          if (container.eventManager[body.runId] === stream) {
+            delete container.eventManager[body.runId];
+          }
         });
 
       set.headers['Connection'] = 'keep-alive';
@@ -110,6 +111,8 @@ export function chatRoutes(container: AppContainer) {
 }
 
 export function createServer(container: AppContainer) {
+  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3002';
+
   return new Elysia({ prefix: '/api' })
     .use(openapi({
       documentation: {
@@ -117,7 +120,7 @@ export function createServer(container: AppContainer) {
         servers: [{ url: `http://localhost:${container.initConfig.appPort}` }],
       }
     }))
-    .use(cors({ origin: 'http://localhost:3002' }))
+    .use(cors({ origin: corsOrigin }))
     .use(chatRoutes(container))
     .use(agentsRoutes(container))
     .use(modelsRoutes(container))

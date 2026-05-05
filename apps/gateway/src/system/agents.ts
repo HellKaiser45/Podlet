@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { Agent } from "../types"
+import { SerialQueue } from "../utils/serial-queue"
 
 
 export default class AgentsManager {
@@ -8,24 +9,13 @@ export default class AgentsManager {
   private readonly promptDir: string;
   agents: Record<string, Agent> = {}
   private agentIdToFilename: Map<string, string> = new Map();
-  private writeQueue: Promise<void> = Promise.resolve();
+  private serialQueue = new SerialQueue();
 
   constructor(basedir: string) {
     this.agentsDir = join(basedir, 'agents');
     this.promptDir = join(basedir, 'prompts');
   }
 
-  private async enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
-    let resolve: () => void;
-    const prev = this.writeQueue;
-    this.writeQueue = new Promise<void>(r => { resolve = r; });
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      resolve!();
-    }
-  }
 
   async loadAll() {
     this.agents = {};
@@ -46,10 +36,15 @@ export default class AgentsManager {
   }
 
   async getAgentprompt(agentId: string) {
-    const path = this.agents[agentId].system_prompt
+    const promptFile = this.agents[agentId].system_prompt;
+    const resolvedPath = resolve(this.promptDir, promptFile);
+    const normalizedPromptDir = resolve(this.promptDir) + sep;
 
+    if (!resolvedPath.startsWith(normalizedPromptDir)) {
+      throw new Error(`Invalid prompt path: path traversal detected`);
+    }
 
-    const { default: prompt } = await import(join(this.promptDir, path), { with: { type: "text" } })
+    const { default: prompt } = await import(resolvedPath, { with: { type: "text" } })
 
     return prompt
   }
@@ -70,7 +65,7 @@ export default class AgentsManager {
   }
 
   async create(agent: Agent): Promise<Agent> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (this.agents[agent.agentId]) {
         throw new Error('Agent already exists: ' + agent.agentId);
       }
@@ -84,7 +79,7 @@ export default class AgentsManager {
   }
 
   async update(agentId: string, partial: Partial<Agent>): Promise<Agent> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       const existing = this.agents[agentId];
       if (!existing) {
         throw new Error('Agent not found: ' + agentId);
@@ -103,7 +98,7 @@ export default class AgentsManager {
   }
 
   async delete(agentId: string): Promise<void> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       const filename = this.agentIdToFilename.get(agentId);
       if (!filename) {
         throw new Error('Agent not found: ' + agentId);

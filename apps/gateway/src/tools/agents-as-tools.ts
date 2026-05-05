@@ -6,6 +6,8 @@ import AppContainer from '../runtime';
 
 export class AgentToolManager {
   private container: AppContainer
+  private static MAX_DEPTH = 3;
+
   constructor(container: AppContainer) {
     this.container = container
   }
@@ -56,7 +58,16 @@ export class AgentToolManager {
     parentFrameid: string,
     runId: string,
     threadId: string,
+    depth: number = 0,
   ): Promise<ChatCompletionToolMessageParam> {
+
+    if (depth >= AgentToolManager.MAX_DEPTH) {
+      return {
+        role: "tool" as const,
+        tool_call_id: toolCallId,
+        content: JSON.stringify({ error: `Maximum subagent depth (${AgentToolManager.MAX_DEPTH}) reached. Cannot spawn more subagents.` }),
+      };
+    }
 
     const agentId = toolName.replace("agent_", "");
 

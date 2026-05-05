@@ -6,6 +6,7 @@ import SkillsManager from "./skills";
 import { ChatCompletionContentPart, ChatCompletionUserMessageParam } from "openai/resources.js";
 import { type OfficeContentNode, type HeadingMetadata, type ListMetadata, parseOffice } from 'officeparser'
 import * as fflate from 'fflate';
+import { SerialQueue } from "../utils/serial-queue";
 
 const DOCUMENT_EXTENSIONS = new Set([
   'docx', 'odt', 'rtf',
@@ -25,7 +26,7 @@ export class VirtualFileSystem {
   private readonly runId: string;
   private readonly cwd?: string;
   private readonly allowedSkillsLocation: string[];
-  private writeQueue: Promise<void> = Promise.resolve();
+  private serialQueue = new SerialQueue();
 
   private readonly ignoreList = new Set([
     // Version control
@@ -301,20 +302,13 @@ export class VirtualFileSystem {
       throw new Error('Cannot write to workspace:// — it is read-only. Use stage_files to copy to artifacts:// first.');
     }
 
-    return new Promise((resolve, reject) => {
-      this.writeQueue = this.writeQueue.then(async () => {
-        try {
-          const realPath = this.virtualToReal(virtualPath);
-          const dir = dirname(realPath);
-          await mkdir(dir, { recursive: true });
-          const tmpPath = `${realPath}.tmp.${Date.now()}`;
-          await Bun.write(tmpPath, content);
-          await rename(tmpPath, realPath);
-          resolve();
-        } catch (err) {
-          reject(new Error(this.sanitizeErrorMessage(err)));
-        }
-      });
+    return this.serialQueue.enqueue(async () => {
+      const realPath = this.virtualToReal(virtualPath);
+      const dir = dirname(realPath);
+      await mkdir(dir, { recursive: true });
+      const tmpPath = `${realPath}.tmp.${Date.now()}`;
+      await Bun.write(tmpPath, content);
+      await rename(tmpPath, realPath);
     });
   }
 

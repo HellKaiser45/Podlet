@@ -1,4 +1,5 @@
 import { ChatCompletionMessageParam } from "@podlet/types";
+import { state } from "../../stores/chat.store";
 import { Marked } from 'marked';
 import { markedHighlight } from "marked-highlight";
 import hljs from 'highlight.js';
@@ -91,6 +92,8 @@ export default function ChatBubble(props: { message: ChatCompletionMessageParam 
   }
 
   // Assistant message bubble: markdown rendering (no image support)
+  const isEmpty = createMemo(() => !extractText(content()) && !hasImageBlocks());
+
   return (
     <div class="chat chat-start mb-2 w-full">
       <div class="chat-header opacity-60 text-sm mb-1">
@@ -101,6 +104,13 @@ export default function ChatBubble(props: { message: ChatCompletionMessageParam 
       </div>
 
       <div class="chat-bubble chat-bubble-neutral p-4 max-w-[90%] overflow-x-auto">
+        {isEmpty() && state.status === 'running' && (
+          <div class="flex items-center gap-1 px-4 py-2">
+            <span class="size-2 bg-base-content/40 rounded-full animate-bounce" style={{ "animation-delay": "0ms" }} />
+            <span class="size-2 bg-base-content/40 rounded-full animate-bounce" style={{ "animation-delay": "150ms" }} />
+            <span class="size-2 bg-base-content/40 rounded-full animate-bounce" style={{ "animation-delay": "300ms" }} />
+          </div>
+        )}
         <div
           class="prose prose-sm prose-invert max-w-none 
                  prose-table:table-auto prose-table:w-full prose-table:border-collapse

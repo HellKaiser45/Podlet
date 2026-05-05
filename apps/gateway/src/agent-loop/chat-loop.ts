@@ -27,8 +27,9 @@ export class AgentChatLoop {
   }
 
   async execute(): Promise<AgentStackFrame> {
+    let iterations = 0;
 
-    while (true) {
+    while (iterations < this.context.maxIterations) {
       switch (this.context.currentState) {
         case AgentState.INITIALIZING: {
           await Promise.all((this.agentDef.mcps || []).map(mcp => this.appContainer.mcpManager.startserver(mcp)))
@@ -67,7 +68,16 @@ export class AgentChatLoop {
         case AgentState.FAILED:
           throw new Error("Agent failed");
       }
+      iterations++;
     }
+
+    this.appContainer.eventManager[this.context.input.runId].push({
+      AgentId: this.agentDef.agentId,
+      type: EventType.RUN_ERROR,
+      message: `Max iterations (${this.context.maxIterations}) reached`
+    });
+    this.context.frame.status = "error";
+    return this.context.frame;
   }
 
   private transitionTo(newState: AgentState) {
@@ -176,7 +186,8 @@ export class AgentChatLoop {
             args,
             this.context.frame.frame_id,
             this.context.input.runId,
-            this.context.input.threadId
+            this.context.input.threadId,
+            (this.context.iteration || 0)
           );
         } else if (this.appContainer.mcpManager.isRunning(call.function.name)) {
           toolPromise = this.appContainer.mcpManager.call(call.function.name, call.id, args);

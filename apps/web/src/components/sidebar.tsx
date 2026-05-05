@@ -152,6 +152,7 @@ export default function Sidebar(props: { children: any }) {
                   hideTooltip();
                   await api.chat({ runid: runid.runId }).delete()
                   revalidate('runIds')
+                  setTimeout(() => setTooltip(null), 100);
                 };
 
                 return (

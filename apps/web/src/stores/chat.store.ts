@@ -11,6 +11,8 @@ import { revalidate } from "@solidjs/router";
 export const [runId, setRunId] = createSignal<string>();
 export const [label, setLabel] = createSignal("");
 
+export const [uploading, setUploading] = createSignal(false);
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -95,6 +97,7 @@ export function clearConversation() {
     tools: [],
     subagents: {},
     pendingApprovals: [],
+    error: undefined,
   })
 }
 
@@ -134,6 +137,11 @@ function buildMessageWithAttachments(textMessage: string): ChatCompletionMessage
   return { role: 'user', content: parts };
 }
 
+export function stopStream() {
+  invalidateStream();
+  setState({ status: 'idle' });
+}
+
 export function callstreamandhandleevents(message: string) {
   setState({ status: 'running' })
 
@@ -150,14 +158,20 @@ export function callstreamandhandleevents(message: string) {
   const fileAttachments = attachments();
 
   // Upload files to backend (backend reconstructs base64 for the LLM)
+  setUploading(true);
   api.file.upload.post({
     runId: id,
     files: fileAttachments.map(a => a.file)
   })
     .then(({ data: uploadData, error: uploadError }) => {
+      setUploading(false);
       if (uploadError) {
         console.error('Upload failed', uploadError);
-        setState({ status: 'idle' });
+        setState({
+          status: 'idle',
+          error: 'File upload failed: ' + (uploadError.message || 'Unknown error'),
+          messages: state.messages.slice(0, -1),
+        });
         return;
       }
 
@@ -168,7 +182,7 @@ export function callstreamandhandleevents(message: string) {
       _activeAbortController = abortController;
 
       api.chat.post({
-        message: { role: 'user', content: message },
+        message: { role: 'user', content: message || '(attached files)' },
         runId: id,
         threadId: 'frontend-dev-1',
         agentId: agent,
@@ -223,13 +237,17 @@ export function callstreamandhandleevents(message: string) {
                   }
                   break;
                 }
-                case "TOOL_CALL_START":
-                  setState('tools', tools => [...tools, {
-                    id: chunk.data.toolCallId,
-                    name: chunk.data.toolCallName,
-                    args: ''
-                  }]);
+                case "TOOL_CALL_START": {
+                  const currentTools = state.tools;
+                  const pendingCount = currentTools.filter(t => t.result === undefined).length;
+                  setState('tools', tools => {
+                    if (pendingCount === 0) {
+                      return [{ id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+                    }
+                    return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+                  });
                   break;
+                }
                 case "TOOL_CALL_ARGS":
                   setState('tools', t => t.id === chunk.data.toolCallId, 'args',
                     (a) => (a ?? '') + (chunk.data.delta ?? ''));
@@ -277,6 +295,15 @@ export function callstreamandhandleevents(message: string) {
               setState({ status: 'idle' });
             }
             revalidate('runIds');
+            if (isStreamAlive(myVersion)) {
+              const firstMsg = messagetosend;
+              const previewText = typeof firstMsg.content === 'string'
+                ? firstMsg.content.slice(0, 100)
+                : '';
+              if (previewText) {
+                api.history.label({ runid: id }).patch({ label: previewText }).catch(() => {});
+              }
+            }
           }
         })();
       });
@@ -324,9 +351,17 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
               updateLastMessageContent(chunk.data.delta);
               break;
             }
-            case "TOOL_CALL_START":
-              setState('tools', tools => [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }]);
+            case "TOOL_CALL_START": {
+              const currentTools = state.tools;
+              const pendingCount = currentTools.filter(t => t.result === undefined).length;
+              setState('tools', tools => {
+                if (pendingCount === 0) {
+                  return [{ id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+                }
+                return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+              });
               break;
+            }
             case "TOOL_CALL_ARGS":
               setState('tools', t => t.id === chunk.data.toolCallId, 'args', (a) => (a ?? '') + (chunk.data.delta ?? ''));
               break;

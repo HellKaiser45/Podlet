@@ -41,7 +41,7 @@ export class HistoryCRUDClient {
       .from(run_history)
       .where(eq(run_history.runId, runId));
 
-    return result[0]?.history;
+    return result[0]?.history ?? [];
   }
 
   /**
@@ -113,11 +113,12 @@ export class HistoryCRUDClient {
     return result.length > 0;
   }
 
-  async getAllRuns(): Promise<{ runId: string; preview: string | null; label: string | null; createdAt: Date | null }[]> {
+  async getAllRuns(limit: number = 100): Promise<{ runId: string; preview: string | null; label: string | null; createdAt: Date | null }[]> {
     return this.db
       .select({ runId: run_history.runId, preview: run_history.preview, label: run_history.label, createdAt: run_history.createdAt })
       .from(run_history)
-      .orderBy(run_history.createdAt);
+      .orderBy(run_history.createdAt)
+      .limit(limit);
   }
 
   async setLabel(runId: string, label: string): Promise<void> {

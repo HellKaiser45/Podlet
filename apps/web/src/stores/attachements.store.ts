@@ -47,9 +47,23 @@ export function processFile(files: File[]) {
     }
 
     if (attachments().some(a => a.name === file.name)) {
-      setAttachments(prev => prev.filter(a => a.name !== file.name));
+      const ext = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
+      const base = file.name.replace(ext, '');
+      let newName = file.name;
+      let counter = 1;
+      while (attachments().some(a => a.name === newName)) {
+        newName = `${base} (${counter})${ext}`;
+        counter++;
+      }
+      const renamedFile: Attachment = {
+        name: newName,
+        type: filetype,
+        file: file,
+      };
+      setAttachments(prev => [...prev, renamedFile]);
+    } else {
+      setAttachments(prev => [...prev, newFile]);
     }
-    setAttachments(prev => [...prev, newFile]);
   }
 }
 

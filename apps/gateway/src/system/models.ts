@@ -1,27 +1,17 @@
 import { join } from 'node:path'
 import { ModelConfig } from "../types"
+import { SerialQueue } from "../utils/serial-queue"
 
 
 export default class ModelsManager {
   private filepath: string;
   models: Record<string, ModelConfig> = {};
-  private writeQueue: Promise<void> = Promise.resolve();
+  private serialQueue = new SerialQueue();
 
   constructor(path: string) {
     this.filepath = join(path, "models.json")
   }
 
-  private async enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
-    let resolve: () => void;
-    const prev = this.writeQueue;
-    this.writeQueue = new Promise<void>(r => { resolve = r; });
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      resolve!();
-    }
-  }
 
   async init() {
     const file = Bun.file(this.filepath);
@@ -37,7 +27,7 @@ export default class ModelsManager {
   }
 
   async create(name: string, config: ModelConfig): Promise<ModelConfig> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (this.models[name]) {
         throw new Error('Model already exists: ' + name);
       }
@@ -48,7 +38,7 @@ export default class ModelsManager {
   }
 
   async update(name: string, partial: Partial<ModelConfig>): Promise<ModelConfig> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (!this.models[name]) {
         throw new Error('Model not found: ' + name);
       }
@@ -59,7 +49,7 @@ export default class ModelsManager {
   }
 
   async delete(name: string): Promise<void> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (!this.models[name]) {
         throw new Error('Model not found: ' + name);
       }

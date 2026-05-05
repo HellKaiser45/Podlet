@@ -130,6 +130,13 @@ export type RunFinishedEvent = AGUIRunFinishedEvent & {
 
 export type CustomBaseEvent = WithAgentId<AGUIEvent>;
 
+export interface HeartbeatEvent {
+  type: "heartbeat";
+  timestamp: string;
+}
+
+export type StreamEvent = CustomBaseEvent | HeartbeatEvent;
+
 //=======================================================================================
 // Config related types
 //=======================================================================================

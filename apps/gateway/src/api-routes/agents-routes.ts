@@ -82,6 +82,11 @@ export default function agentsRoutes(container: AppContainer) {
     
     // DELETE agent
     .delete('/:agentId', async ({ params, set }) => {
+      const activeCount = Object.keys(container.eventManager).length;
+      if (activeCount > 0) {
+        set.status = 409;
+        return { error: `Cannot delete agent while ${activeCount} active stream(s) are running. Please wait for them to finish.` };
+      }
       try {
         await container.agentManager.delete(params.agentId);
         return { success: true };

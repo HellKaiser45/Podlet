@@ -138,6 +138,10 @@ export class AgentOrchestrator {
     const frameexec: Promise<AgentStackFrame>[] = [];
     const leaves = await this.appContainer.frameCRUD.getLeafFrames(input.runId);
 
+    if (leaves.length === 0) {
+      throw new Error("No leaf frames found for runId: " + input.runId);
+    }
+
     for (const leaf of leaves) {
       const context: ExecutionContext = {
         input: input,

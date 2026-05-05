@@ -1,7 +1,7 @@
-import type { CustomBaseEvent } from "./types"
+import type { StreamEvent } from "./types"
 
 export class AgentEventStream {
-  private queue: CustomBaseEvent[] = []
+  private queue: StreamEvent[] = []
   private closed = false
   private resolve: (() => void) | null = null
   private logWriter: ReturnType<ReturnType<typeof Bun.file>["writer"]>
@@ -18,7 +18,7 @@ export class AgentEventStream {
     this.heartbeatIntervalMs = heartbeatIntervalMs;
   }
 
-  push(event: CustomBaseEvent) {
+  push(event: StreamEvent) {
     if (this.closed) return
     const timestamp = new Date().toISOString()
     const logString = `[${timestamp}] ${JSON.stringify(event)}\n`
@@ -59,7 +59,7 @@ export class AgentEventStream {
     }
   }
 
-  async *[Symbol.asyncIterator](): AsyncGenerator<CustomBaseEvent> {
+  async *[Symbol.asyncIterator](): AsyncGenerator<StreamEvent> {
     while (true) {
       // 1. Drain the queue first
       while (this.queue.length > 0) {
@@ -84,12 +84,10 @@ export class AgentEventStream {
 
       // 4. If the queue is still empty after waking up, it means the timeout fired
       if (this.queue.length === 0 && !this.closed) {
-        // Yield a standard "ping" or "heartbeat" event
-        // Using 'as any' here if CustomBaseEvent doesn't strictly allow this type
         yield {
           type: "heartbeat",
           timestamp: new Date().toISOString()
-        } as unknown as CustomBaseEvent
+        }
       }
     }
   }

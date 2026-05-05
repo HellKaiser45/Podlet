@@ -5,28 +5,18 @@ import type {
 } from 'openai/resources/chat/completions';
 import { LiteLLMMessage, MCPConfig, MCPInstance } from "../../types";
 import { join } from "path";
+import { SerialQueue } from "../../utils/serial-queue";
 
 
 export default class MCPManager {
   private filepath: string;
   mcps: Record<string, MCPConfig> = {};
   runningInstances: Record<string, MCPInstance> = {};
-  private writeQueue: Promise<void> = Promise.resolve();
+  private serialQueue = new SerialQueue();
+  private starting: Set<string> = new Set();
 
   constructor(path: string) {
     this.filepath = join(path, 'mcp.json');
-  }
-
-  private async enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
-    let resolve: () => void;
-    const prev = this.writeQueue;
-    this.writeQueue = new Promise<void>(r => { resolve = r; });
-    await prev;
-    try {
-      return await fn();
-    } finally {
-      resolve!();
-    }
   }
 
   async init() {
@@ -38,31 +28,41 @@ export default class MCPManager {
     const mcp = this.mcps[mcpId]
     if (this.runningInstances[mcpId]) return
 
-    const transport = new StdioClientTransport({
-      command: mcp.command,
-      args: mcp.args,
-      env: mcp.env,
-    });
+    while (this.starting.has(mcpId)) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (this.runningInstances[mcpId]) return;
 
-    const client = new Client(
-      { name: "mcp-gateway", version: "1.0.0" },
-      { capabilities: {} }
-    );
+    this.starting.add(mcpId);
+    try {
+      const transport = new StdioClientTransport({
+        command: mcp.command,
+        args: mcp.args,
+        env: mcp.env,
+      });
 
-    await client.connect(transport);
+      const client = new Client(
+        { name: "mcp-gateway", version: "1.0.0" },
+        { capabilities: {} }
+      );
 
-    const toolsResult = await client.listTools()
+      await client.connect(transport);
 
-    const tools: ChatCompletionTool[] = toolsResult.tools.map((tool) => ({
-      type: "function",
-      function: {
-        name: `${mcpId}_${tool.name}`,
-        description: tool.description,
-        parameters: tool.inputSchema,
-      },
-    }));
+      const toolsResult = await client.listTools()
 
-    this.runningInstances[mcpId] = { client, tools }
+      const tools: ChatCompletionTool[] = toolsResult.tools.map((tool) => ({
+        type: "function",
+        function: {
+          name: `${mcpId}_${tool.name}`,
+          description: tool.description,
+          parameters: tool.inputSchema,
+        },
+      }));
+
+      this.runningInstances[mcpId] = { client, tools }
+    } finally {
+      this.starting.delete(mcpId);
+    }
   }
 
   async create(mcpsIds: string[]) {
@@ -74,9 +74,20 @@ export default class MCPManager {
   }
 
   async call(toolname: string, toolCallId: string, args: Record<string, unknown>): Promise<LiteLLMMessage> {
-    const [first, ...rest] = toolname.split("_")
-    const second = rest.join("_")
-    const result = await this.runningInstances[first].client.callTool({ name: second, arguments: args })
+    let mcpId: string | null = null;
+    let actualToolName: string | null = null;
+    for (const [id, instance] of Object.entries(this.runningInstances)) {
+      const found = instance.tools.find(t => t.type === 'function' && t.function.name === toolname);
+      if (found) {
+        mcpId = id;
+        actualToolName = found.function.name.slice(id.length + 1);
+        break;
+      }
+    }
+    if (!mcpId || actualToolName === null) {
+      throw new Error(`No running MCP instance found for tool: ${toolname}`);
+    }
+    const result = await this.runningInstances[mcpId].client.callTool({ name: actualToolName, arguments: args })
     return {
       role: "tool",
       tool_call_id: toolCallId,
@@ -116,7 +127,7 @@ export default class MCPManager {
   }
 
   async createConfig(name: string, config: MCPConfig): Promise<MCPConfig> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (this.mcps[name]) {
         throw new Error('MCP already exists: ' + name);
       }
@@ -127,7 +138,7 @@ export default class MCPManager {
   }
 
   async updateConfig(name: string, partial: Partial<MCPConfig>): Promise<MCPConfig> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (!this.mcps[name]) {
         throw new Error('MCP not found: ' + name);
       }
@@ -138,7 +149,7 @@ export default class MCPManager {
   }
 
   async deleteConfig(name: string): Promise<void> {
-    return this.enqueueWrite(async () => {
+    return this.serialQueue.enqueue(async () => {
       if (!this.mcps[name]) {
         throw new Error('MCP not found: ' + name);
       }
