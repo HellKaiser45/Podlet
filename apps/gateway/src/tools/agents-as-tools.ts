@@ -72,35 +72,36 @@ export class AgentToolManager {
 
     const runagent: RunAgentInput = {
       message: { role: "user", content: JSON.stringify(args) },
-      forwardedProps: {
-        agentId: agentId,
-      },
       runId: runId,
       threadId: threadId,
-      tools: [],
-      context: [],
-      state: {},
+      agentId: agentId,
     }
 
     const agentContext = createContext(runagent, childFrame)
 
     const loop = new AgentChatLoop(agentContext, this.container, agentId)
-    const result = await loop.execute()
 
-    if (result.status === "completed") {
-      return {
-        role: "tool",
-        tool_call_id: toolCallId,
-        content: JSON.stringify(result.history[result.history.length - 1].content),
+    try {
+      const result = await loop.execute()
+
+      if (result.status === "completed") {
+        return {
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: JSON.stringify(result.history[result.history.length - 1].content),
+        }
+      } else if (result.status === "suspended") {
+        throw new AgentToolSuspended(childFrame.frame_id, childFrame.agent_id)
+      } else {
+        throw new Error(`Unexpected error in agent tool execution: ${result.status}`)
       }
-    }
-
-    else if (result.status === "suspended") {
-      throw new AgentToolSuspended(childFrame.frame_id, childFrame.agent_id)
-    }
-
-    else {
-      throw new Error(`Unexpected error in agent tool execution: ${result.status}`)
+    } catch (err) {
+      if (err instanceof AgentToolSuspended) throw err;
+      return {
+        role: "tool" as const,
+        tool_call_id: toolCallId,
+        content: JSON.stringify({ error: `Subagent '${agentId}' failed: ${err instanceof Error ? err.message : String(err)}` }),
+      };
     }
   }
 }

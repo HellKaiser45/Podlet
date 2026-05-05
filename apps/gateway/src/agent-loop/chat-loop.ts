@@ -86,40 +86,50 @@ export class AgentChatLoop {
 
 
   private async callLLM() {
-    const accu = new MessageAccumulator();
+    try {
+      const accu = new MessageAccumulator();
 
-    const messageId = randomUUIDv7()
+      const messageId = randomUUIDv7()
 
-    for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs)) {
-      if (!choice.choices || choice.choices.length === 0) continue;
+      for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs)) {
+        if (!choice.choices || choice.choices.length === 0) continue;
+        this.appContainer.eventManager[this.context.input.runId].push({
+          AgentId: this.agentDef.agentId,
+          type: EventType.TEXT_MESSAGE_CHUNK,
+          message_id: messageId,
+          role: 'assistant',
+          delta: choice.choices[0].delta.content ?? undefined
+        })
+        accu.constructMessage(choice.choices[0].delta)
+        switch (choice.choices[0].finish_reason) {
+          case null:
+            continue;
+          case "tool_calls":
+          case "stop":
+            const message = accu.buildMessage();
+            this.context.frame.history.push(message);
+            break;
+          case "content_filter":
+          case "length":
+            this.transitionTo(AgentState.FAILED)
+            return
+        }
+      }
+
+      const lastMessage = this.context.frame.history[this.context.frame.history.length - 1] satisfies LiteLLMMessage;
+      if (lastMessage.role === "assistant" && lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+        this.transitionTo(AgentState.EXECUTING_TOOLS)
+      } else {
+        this.transitionTo(AgentState.COMPLETED)
+      }
+    } catch (error) {
       this.appContainer.eventManager[this.context.input.runId].push({
         AgentId: this.agentDef.agentId,
-        type: EventType.TEXT_MESSAGE_CHUNK,
-        message_id: messageId,
-        role: 'assistant',
-        delta: choice.choices[0].delta.content ?? undefined
-      })
-      accu.constructMessage(choice.choices[0].delta)
-      switch (choice.choices[0].finish_reason) {
-        case null:
-          continue;
-        case "tool_calls":
-        case "stop":
-          const message = accu.buildMessage();
-          this.context.frame.history.push(message);
-          break;
-        case "content_filter":
-        case "length":
-          this.transitionTo(AgentState.FAILED)
-          return
-      }
-    }
-
-    const lastMessage = this.context.frame.history[this.context.frame.history.length - 1] satisfies LiteLLMMessage;
-    if (lastMessage.role === "assistant" && lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-      this.transitionTo(AgentState.EXECUTING_TOOLS)
-    } else {
-      this.transitionTo(AgentState.COMPLETED)
+        type: EventType.RUN_ERROR,
+        message: `LLM call failed: ${error instanceof Error ? error.message : String(error)}`
+      });
+      this.transitionTo(AgentState.FAILED);
+      return;
     }
   }
 

@@ -3,6 +3,7 @@ import IconWrapper from "../../ui/iconWrapper";
 import { createSignal } from "solid-js";
 import { callstreamandhandleevents, state } from "../../../stores/chat.store";
 import { selectedAgent } from "../../../stores/chatInput.store";
+import { setAttachments } from "../../../stores/attachements.store";
 
 export default function UserMessageSend() {
   const [textmessage, setTextmessage] = createSignal("");
@@ -17,6 +18,7 @@ export default function UserMessageSend() {
     const agentId = selectedAgent();
     if (!agentId) throw new Error("No agent selected");
     callstreamandhandleevents(textmessage());
+    setAttachments([]);
     setTextmessage("");
     if (textareaRef) {
       textareaRef.style.height = "auto";

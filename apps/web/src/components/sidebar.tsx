@@ -1,6 +1,6 @@
 import { createAsync, useNavigate, query, revalidate } from "@solidjs/router";
 import { api } from "../utils/api/share.api";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 export const getRunIds = query(async () => {
@@ -26,7 +26,18 @@ export default function Sidebar(props: { children: any }) {
   const runids = createAsync(() => getRunIds());
   const navigate = useNavigate();
 
+  const [searchQuery, setSearchQuery] = createSignal<string>("");
   const [tooltip, setTooltip] = createSignal<{ text: string; x: number; y: number } | null>(null);
+
+  const filteredRunIds = createMemo(() => {
+    const query = searchQuery().toLowerCase().trim();
+    const data = runids();
+    if (!data) return [];
+    if (!query) return data;
+    return data.filter(r =>
+      (r.label || r.preview || r.runId).toLowerCase().includes(query)
+    );
+  });
 
   const showTooltip = (e: MouseEvent, text: string) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -112,8 +123,18 @@ export default function Sidebar(props: { children: any }) {
           </div>
           <div class="divider is-drawer-close:hidden my-0 px-4" />
 
+          <div class="is-drawer-close:hidden px-3 mb-2 mt-1">
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              class="input input-sm input-bordered w-full bg-base-100 text-sm"
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+            />
+          </div>
+
           <ul class="menu menu-md w-full px-2 gap-0.5 grow overflow-y-auto">
-            <For each={runids()}>
+            <For each={filteredRunIds()}>
               {(runid) => {
                 const [label, setLabel] = createSignal(runid.label || runid.preview || runid.runId);
                 const [isEditing, setIsEditing] = createSignal(false);

@@ -264,14 +264,16 @@ export function callstreamandhandleevents(message: string) {
             } else {
               console.error('[chat.store] Stream error:', err);
               if (isStreamAlive(myVersion)) {
-                setState({ error: String(err) });
+                setState({
+                  error: 'Connection to agent lost. The agent may still be processing your request.',
+                });
               }
             }
           } finally {
             if (_activeAbortController === abortController) {
               _activeAbortController = null;
             }
-            if (isStreamAlive(myVersion) && state.status !== 'awaiting_approval') {
+            if (isStreamAlive(myVersion) && state.status !== 'awaiting_approval' && !state.error) {
               setState({ status: 'idle' });
             }
             revalidate('runIds');
@@ -357,14 +359,16 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
         } else {
           console.error('[chat.store] Resume stream error:', err);
           if (isStreamAlive(myVersion)) {
-            setState({ error: String(err) });
+            setState({
+              error: 'Connection to agent lost. The agent may still be processing your request.',
+            });
           }
         }
       } finally {
         if (_activeAbortController === abortController) {
           _activeAbortController = null;
         }
-        if (isStreamAlive(myVersion) && state.status !== 'awaiting_approval') {
+        if (isStreamAlive(myVersion) && state.status !== 'awaiting_approval' && !state.error) {
           setState({ status: 'idle' });
         }
         revalidate('runIds');

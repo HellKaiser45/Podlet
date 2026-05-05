@@ -24,12 +24,19 @@ export const ALLOWED_EXTENSIONS = new Set([
   "r", "jl", "dart", "scala", "clj",
 ]);
 
+export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 export const [attachments, setAttachments] = createSignal<Attachment[]>([]);
 
 
 export function processFile(files: File[]) {
 
   for (const file of files) {
+    if (file.size > MAX_FILE_SIZE) {
+      console.warn(`File ${file.name} exceeds 10MB limit (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      continue;
+    }
+
     let filetype: "text" | "image" = "text"
     if (file.type.startsWith("image/")) filetype = "image"
 

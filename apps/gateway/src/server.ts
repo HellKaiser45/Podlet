@@ -29,6 +29,11 @@ export function chatRoutes(container: AppContainer) {
         decision: body.decision,
       } satisfies RunAgentInput
 
+      if (container.eventManager[body.runId]) {
+        set.status = 409;
+        return { message: "A stream is already active for this runId" };
+      }
+
       const stream = new AgentEventStream();
       container.eventManager[body.runId] = stream;
 

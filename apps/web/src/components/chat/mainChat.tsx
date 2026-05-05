@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router";
-import { clearConversation, loadConversation, setRunId, state } from "../../stores/chat.store";
+import { clearConversation, loadConversation, setRunId, setState, state } from "../../stores/chat.store";
 import ChatInputs from "./chatBox/chatInputs";
 import Conversation from "./conversation";
 import { createEffect, Show } from "solid-js";
@@ -49,6 +49,18 @@ export default function Chat() {
             </div>
             <div class="w-full max-w-3xl">
               <ChatInputs />
+            </div>
+          </div>
+        </Show>
+
+        <Show when={state.error}>
+          <div class="w-full max-w-3xl mx-auto px-4 py-2">
+            <div class="alert alert-error alert-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <span class="text-sm">{state.error}</span>
+              <button class="btn btn-ghost btn-xs" onClick={() => setState({ error: undefined })}>Dismiss</button>
             </div>
           </div>
         </Show>

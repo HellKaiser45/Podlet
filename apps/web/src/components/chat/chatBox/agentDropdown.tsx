@@ -1,4 +1,4 @@
-import { createAsync, query } from "@solidjs/router"
+import { createAsync, query, revalidate } from "@solidjs/router"
 import { getAgents } from "../../../utils/api/agent.api"
 import { For, Show, createEffect } from "solid-js"
 import { selectedAgent, setSelectedAgent } from "../../../stores/chatInput.store"
@@ -18,6 +18,7 @@ export default function AgentDropdown() {
   const currentAgent = () => selectedAgent() || firstAgentId();
 
   createEffect(() => {
+    revalidate('agents')
     const data = agents()
     if (!data) return
     if (selectedAgent()) return

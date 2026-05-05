@@ -12,7 +12,7 @@ export class AgentEventStream {
 
   constructor(
     logFilePath: string = "agent-events.log",
-    heartbeatIntervalMs: number = 15000 // Default to 15 seconds
+    heartbeatIntervalMs: number = 5000 // Default to 5 seconds
   ) {
     this.logWriter = Bun.file(logFilePath).writer()
     this.heartbeatIntervalMs = heartbeatIntervalMs;

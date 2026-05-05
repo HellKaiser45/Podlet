@@ -22,6 +22,9 @@
     "pptxgenjs": "^4.0.1"
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
-  }
+    "typescript": "^6.0.3",
+    "@types/bun": "latest"
+  },
+  "module": "index.ts",
+  "type": "module"
 }
