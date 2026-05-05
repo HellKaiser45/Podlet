@@ -6,13 +6,11 @@ set -e
 PODLET_DATA="/root/.podlet"
 
 echo "Starting Podlet Gateway..."
-echo "Data directory: ${PODLET_DATA}"
 
 # Verify the data directory mount
 if [ ! -d "${PODLET_DATA}" ]; then
   echo "ERROR: Data directory ${PODLET_DATA} does not exist."
   echo "The volume mount may not be configured correctly."
-  echo "Make sure PODLET_DIR in your .env file points to an existing directory."
   exit 1
 fi
 
