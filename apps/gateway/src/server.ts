@@ -116,6 +116,13 @@ export async function createServer(container: AppContainer) {
   const staticFrontend = container.initConfig.docker.staticFrontend;
 
   const api = new Elysia({ prefix: '/api' })
+    .onRequest(({ request, set }) => {
+      const start = Date.now();
+      return () => {
+        const ms = Date.now() - start;
+        console.log(`[Request] ${request.method} ${new URL(request.url).pathname} ${set.status} ${ms}ms`);
+      };
+    })
     .use(openapi({
       documentation: {
         info: { title: 'Podlet API', version: '0.1.0' },

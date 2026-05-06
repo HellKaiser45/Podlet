@@ -12,6 +12,9 @@ console.log(`[Config] host: ${prodConfig.host}, appPort: ${prodConfig.appPort}`)
 const container = new AppContainer(prodConfig)
 await container.init()
 
+const runCount = await container.historyManager.getAllRuns();
+console.log(`[DB] Found ${runCount.length} conversations in database`);
+
 export const app = await createServer(container)
 export type App = typeof app
 
