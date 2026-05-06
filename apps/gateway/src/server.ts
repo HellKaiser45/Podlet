@@ -152,6 +152,12 @@ export async function createServer(container: AppContainer) {
         prefix: '',
         indexHTML: true,
       }))
+      // SPA fallback: any non-API, non-static route serves index.html
+      // so client-side routing (e.g. /chat/:runid) works on reload
+      .get('/*', ({ set }) => {
+        set.headers['Content-Type'] = 'text/html';
+        return Bun.file('/app/frontend/dist/index.html');
+      })
       .listen(container.initConfig.port);
   }
 
