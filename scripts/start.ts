@@ -20,8 +20,8 @@ const gatewayPort = config.server?.port ?? 3000;
 const pythonPort = config.server?.pythonPort ?? 8000;
 const webPort = config.server?.webPort ?? 3002;
 const host = config.server?.host ?? '127.0.0.1';
-const dockerEnabled = config.docker?.enabled ?? false;
-const exposedPort = config.server?.exposedPort ?? webPort;
+
+const isDocker = process.env.PODLET_DOCKER === '1';
 
 // ── Track children ───────────────────────────────────────
 
@@ -60,13 +60,13 @@ async function main() {
   console.log('  ╚════════════════════════════════════════╝');
   console.log('');
 
-  if (dockerEnabled) {
+  if (isDocker) {
     console.log('  Running in Docker mode. Only starting gateway.');
     console.log('  Other services are managed by Docker Compose.');
     console.log('');
   }
 
-  if (!dockerEnabled) {
+  if (!isDocker) {
     // 1. Python / FastAPI backend
     const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
     if (!existsSync(venvDir)) {
@@ -100,7 +100,7 @@ async function main() {
 
   await new Promise((r) => setTimeout(r, 1000));
 
-  if (!dockerEnabled) {
+  if (!isDocker) {
     // 3. Web UI (SolidJS / Vite dev server)
     console.log('  [web] Starting on http://localhost:' + webPort);
     start('web', 'bun', [
@@ -113,8 +113,8 @@ async function main() {
 
   console.log('');
   console.log('  ─────────────────────────────────────────');
-  if (dockerEnabled) {
-    console.log('  Frontend available at: http://localhost:' + exposedPort);
+  if (isDocker) {
+    console.log('  Frontend available at: http://localhost:' + webPort);
   } else {
     console.log('  Gateway:    http://localhost:' + gatewayPort);
     console.log('  Python LLM: http://localhost:' + pythonPort);

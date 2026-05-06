@@ -17,57 +17,37 @@ async function loadConfig(): Promise<AppConfig> {
     // Fallback to defaults if file is missing or invalid JSON
   }
 
-  let pythonPort = configFile.server?.pythonPort ?? 8000;
-  let host = configFile.server?.host ?? '127.0.0.1';
-  const appPort = configFile.server?.port ?? 3000;
+  const port = configFile.server?.port ?? 3000;
+  const pythonPort = configFile.server?.pythonPort ?? 8000;
   const webPort = configFile.server?.webPort ?? 3002;
+  let host = configFile.server?.host ?? '127.0.0.1';
   const dbName = configFile.database?.path ?? 'podlet.db';
-  const logLevel = configFile.logging?.level ?? 'info';
-  const maxConcurrentAgents = configFile.features?.max_concurrent_agents ?? 5;
   const safemode = configFile.features?.safemode ?? false;
+  const dbPath = join(podeletDir, dbName);
 
-  let docker = {
-    enabled: configFile.docker?.enabled ?? false,
-    llmServiceHost: configFile.docker?.llmServiceHost ?? 'localhost',
-    staticFrontend: configFile.docker?.staticFrontend ?? false,
-  };
+  const llmApiUrl = process.env.LLM_SERVICE_HOST
+    ? `http://${process.env.LLM_SERVICE_HOST}:${pythonPort}`
+    : `http://localhost:${pythonPort}`;
 
-  let exposedPort = configFile.server?.exposedPort ?? webPort;
-  const llmApiUrl = `http://${docker.llmServiceHost}:${pythonPort}`;
-  const corsOrigin = configFile.features?.cors_origin ?? ('http://localhost:' + exposedPort);
+  let corsOrigin = `http://localhost:${webPort}`;
 
   // Docker overlay: override settings for container runtime without modifying config.json
-  const isDocker = process.env.PODLET_DOCKER === '1';
-  if (isDocker) {
+  if (process.env.PODLET_DOCKER === '1') {
     host = '0.0.0.0';
-    docker.enabled = true;
-    docker.llmServiceHost = process.env.LLM_SERVICE_HOST || 'agent-core';
-    docker.staticFrontend = true;
+    corsOrigin = 'http://localhost:3002';
   }
 
-  // Recompute derived values if Docker overrides changed them
-  const finalLLmApiUrl = isDocker
-    ? `http://${docker.llmServiceHost}:${pythonPort}`
-    : llmApiUrl;
-  const finalCorsOrigin = isDocker
-    ? ('http://localhost:' + exposedPort)
-    : corsOrigin;
-
   return {
-    podeletDir: podeletDir,
+    podeletDir,
     dbName,
-    llmApiUrl: finalLLmApiUrl,
-    appPort,
-    exposedPort,
-    enableWatchers: true,
-    safemode,
+    dbPath,
+    llmApiUrl,
+    port,
+    host,
     pythonPort,
     webPort,
-    logLevel,
-    maxConcurrentAgents,
-    corsOrigin: finalCorsOrigin,
-    host,
-    docker,
+    corsOrigin,
+    safemode,
   };
 }
 

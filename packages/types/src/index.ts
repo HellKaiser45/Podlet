@@ -11,11 +11,6 @@ export type {
 //==============================
 // CONFIG
 // =============================
-export interface DockerConfig {
-  enabled: boolean;
-  llmServiceHost: string;
-  staticFrontend: boolean;
-}
 
 export interface ConfigFile {
   server?: {
@@ -23,8 +18,6 @@ export interface ConfigFile {
     host?: string;
     pythonPort?: number;
     webPort?: number;
-    exposedPort?: number;
-    cors_enabled?: boolean;
   };
   database?: {
     path?: string;
@@ -33,14 +26,7 @@ export interface ConfigFile {
     level?: string;
   };
   features?: {
-    hil_enabled?: boolean;
-    max_concurrent_agents?: number;
-    cors_origin?: string;
-  };
-  docker?: {
-    enabled?: boolean;
-    llmServiceHost?: string;
-    staticFrontend?: boolean;
+    safemode?: boolean;
   };
 }
 
@@ -48,15 +34,11 @@ export interface AppConfig {
   podeletDir: string;
   dbName: string;
   llmApiUrl: string;
-  appPort: number;
-  exposedPort: number;
-  enableWatchers: boolean;
-  safemode: boolean;
+  port: number;
+  host: string;
   pythonPort: number;
   webPort: number;
-  logLevel: string;
-  maxConcurrentAgents: number;
+  dbPath: string;
   corsOrigin: string;
-  host: string;
-  docker: DockerConfig;
+  safemode: boolean;
 }

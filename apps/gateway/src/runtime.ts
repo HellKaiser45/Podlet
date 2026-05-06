@@ -59,7 +59,7 @@ export default class AppContainer {
     ])
     // PromptsManager has no async init needed -- it reads files on-demand
 
-    if (this.initConfig.enableWatchers) { await this.startwatchers() }
+    await this.startwatchers()
   }
 
   private debounce(key: string, fn: () => Promise<void>, ms: number): () => void {

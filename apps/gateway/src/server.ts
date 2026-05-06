@@ -40,7 +40,7 @@ export function chatRoutes(container: AppContainer) {
 
       request.signal.addEventListener('abort', async () => {
         try {
-          console.log('[Route] Abort signal received. Closing stream...');
+          console.log('[Route] Abort signal receive. Closing stream...');
           await stream.close();
           delete container.eventManager[body.runId];
           console.log('[Route] Stream closed successfully.');
@@ -113,7 +113,13 @@ export function chatRoutes(container: AppContainer) {
 
 export async function createServer(container: AppContainer) {
   const corsOrigin = container.initConfig.corsOrigin;
-  const staticFrontend = container.initConfig.docker.staticFrontend;
+
+  // Check if static frontend files exist
+  let staticFrontend = false;
+  try {
+    const stat = await Bun.file('/app/frontend/dist/index.html').stat();
+    staticFrontend = !!stat;
+  } catch {}
 
   const api = new Elysia({ prefix: '/api' })
     .onRequest(({ request, set }) => {
@@ -126,7 +132,7 @@ export async function createServer(container: AppContainer) {
     .use(openapi({
       documentation: {
         info: { title: 'Podlet API', version: '0.1.0' },
-        servers: [{ url: `http://localhost:${container.initConfig.appPort}` }],
+        servers: [{ url: `http://localhost:${container.initConfig.port}` }],
       }
     }))
     .use(cors({ origin: corsOrigin }))
@@ -146,10 +152,10 @@ export async function createServer(container: AppContainer) {
         prefix: '',
         indexHTML: true,
       }))
-      .listen(container.initConfig.appPort);
+      .listen(container.initConfig.port);
   }
 
-  return api.listen(container.initConfig.appPort);
+  return api.listen(container.initConfig.port);
 }
 
 export async function cleanup(container: AppContainer) {

@@ -125,12 +125,10 @@ async function main() {
   // ── Prompts ──────────────────────────────────────────
   console.log('\n  Configuration\n  ─────────────');
 
-  const gatewayPort  = Number(await ask('Gateway port', isDocker ? '3000' : '3000'));
+  const gatewayPort  = Number(await ask('Gateway port', '3000'));
   const pythonPort   = Number(await ask('Python backend port', '8000'));
-  const webPort      = Number(await ask('Web UI port', isDocker ? '3002' : '3002'));
-  const exposedPort  = isDocker ? Number(await ask('Exposed port (host)', '3002')) : webPort;
-  const hilEnabled   = await askYesNo('Enable Human-in-the-Loop (HIL)', true);
-  const maxAgents    = Number(await ask('Max concurrent agents', '5'));
+  const webPort      = Number(await ask('Web UI port', '3002'));
+  const safemode     = await askYesNo('Enable safemode (human approval for tool calls)', false);
 
   // ── LLM providers ────────────────────────────────────
   interface ProviderEntry { provider: string; model: string; base_url?: string; envVar: string; apiKey: string }
@@ -164,15 +162,11 @@ async function main() {
   mkdirSync(path.join(podletDir, 'prompts'), { recursive: true });
 
   // config.json
-  const configJson: Record<string, any> = {
-    server:   { port: gatewayPort, host: isDocker ? '0.0.0.0' : '127.0.0.1', pythonPort, webPort, ...(isDocker ? { exposedPort } : {}), cors_enabled: true },
+  const configJson = {
+    server:   { port: gatewayPort, host: isDocker ? '0.0.0.0' : '127.0.0.1', pythonPort, webPort },
     database: { path: 'podlet.db' },
-    logging:  { level: 'info' },
-    features: { hil_enabled: hilEnabled, max_concurrent_agents: maxAgents, cors_origin: 'http://localhost:' + (isDocker ? exposedPort : webPort) },
+    features: { safemode },
   };
-  if (isDocker) {
-    configJson.docker = { enabled: true, llmServiceHost: 'agent-core', staticFrontend: true };
-  }
   writeFileSync(path.join(podletDir, 'config.json'), JSON.stringify(configJson, null, 2));
 
   // models.json
@@ -253,7 +247,7 @@ async function main() {
     console.log('  Next steps:');
     console.log('    docker compose up -d');
     console.log('');
-    console.log('  Then visit: http://localhost:' + exposedPort);
+    console.log('  Then visit: http://localhost:' + webPort);
   } else {
     console.log('  Services:');
     console.log('    Gateway:    http://localhost:' + gatewayPort);
