@@ -1,6 +1,6 @@
 import { createAsync, query, revalidate } from "@solidjs/router"
 import { getAgents } from "../../../utils/api/agent.api"
-import { For, Show, createEffect } from "solid-js"
+import { For, Show, onMount, createEffect } from "solid-js"
 import { selectedAgent, setSelectedAgent } from "../../../stores/chatInput.store"
 
 const myAgents = query(async () => {
@@ -17,15 +17,21 @@ export default function AgentDropdown() {
 
   const currentAgent = () => selectedAgent() || firstAgentId();
 
-  createEffect(() => {
+  onMount(() => {
     revalidate('agents')
+  })
+
+  // Auto-select first agent when data loads and none is selected
+  const autoSelect = () => {
     const data = agents()
     if (!data) return
     if (selectedAgent()) return
-
     const firstId = Object.keys(data)[0]
     if (firstId) setSelectedAgent(firstId)
-  })
+  }
+
+  // Call autoSelect reactively without revalidating
+  createEffect(autoSelect)
 
   return (
     <div class="flex gap-1">
