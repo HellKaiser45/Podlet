@@ -11,7 +11,6 @@ import filesRoutes from './api-routes/files-routes';
 import { skillsRoutes } from "./api-routes/skills-routes";
 import promptsRoutes from './api-routes/prompts-routes';
 import cors from '@elysiajs/cors';
-import { staticPlugin } from '@elysiajs/static';
 import { VirtualFileSystem } from './system/sandbox';
 
 
@@ -149,17 +148,17 @@ export async function createServer(container: AppContainer) {
   if (staticFrontend) {
     return new Elysia()
       .use(api)
-      .use(await staticPlugin({
-        assets: '/app/frontend/dist',
-        prefix: '',
-      }))
-      // SPA fallback: any non-API, non-static request that hits 404
-      // serves index.html so client-side routing works on reload
-      .onError(({ code, set }) => {
-        if (code === 'NOT_FOUND') {
-          set.headers['Content-Type'] = 'text/html';
-          return Bun.file('/app/frontend/dist/index.html');
+      .get('/*', async ({ params }) => {
+        const path = params['*'];
+        // Serve real static assets (files with extensions)
+        if (path && path.includes('.')) {
+          const file = Bun.file(`/app/frontend/dist/${path}`);
+          if (await file.exists()) return file;
         }
+        // SPA fallback: serve index.html for all routes
+        return new Response(Bun.file('/app/frontend/dist/index.html'), {
+          headers: { 'Content-Type': 'text/html' }
+        });
       })
       .listen(container.initConfig.port);
   }
