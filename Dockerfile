@@ -42,6 +42,21 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && \
   pip3 install --break-system-packages uv && \
   apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install browser dependencies for MCP servers (Playwright, Puppeteer, Selenium)
+RUN apt-get update && apt-get install -y \
+    chromium \
+    git \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright browsers (also installs all remaining system deps)
+RUN npx playwright install --with-deps chromium
+
+# Tell Puppeteer to use system Chromium instead of downloading its own
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV CHROME_PATH=/usr/bin/chromium
+
 # Copy workspace manifests and install production deps only
 COPY package.json bun.lockb* bun.lock* ./
 COPY apps/gateway/package.json apps/gateway/package.json
