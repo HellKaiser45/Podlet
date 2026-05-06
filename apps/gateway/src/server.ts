@@ -150,13 +150,14 @@ export async function createServer(container: AppContainer) {
       .use(await staticPlugin({
         assets: '/app/frontend/dist',
         prefix: '',
-        indexHTML: true,
       }))
-      // SPA fallback: any non-API, non-static route serves index.html
-      // so client-side routing (e.g. /chat/:runid) works on reload
-      .get('/*', ({ set }) => {
-        set.headers['Content-Type'] = 'text/html';
-        return Bun.file('/app/frontend/dist/index.html');
+      // SPA fallback: any non-API, non-static request that hits 404
+      // serves index.html so client-side routing works on reload
+      .onError(({ code, set }) => {
+        if (code === 'NOT_FOUND') {
+          set.headers['Content-Type'] = 'text/html';
+          return Bun.file('/app/frontend/dist/index.html');
+        }
       })
       .listen(container.initConfig.port);
   }
