@@ -63,7 +63,8 @@ COPY --from=frontend-build /app/apps/web/dist /app/frontend/dist
 
 EXPOSE 3000
 
-ENV PODLET_DIR=/podlet-data
+# Ensure homedir() resolves to /root so ~/.podlet matches the volume mount
+ENV HOME=/root
 
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
