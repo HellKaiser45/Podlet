@@ -40,10 +40,12 @@ export function chatRoutes(container: AppContainer) {
 
       request.signal.addEventListener('abort', async () => {
         try {
-          console.log('[Route] Abort signal receive. Closing stream...');
+          console.log('[Route] Abort signal received. Closing stream...');
           await stream.close();
-          delete container.eventManager[body.runId];
-          console.log('[Route] Stream closed successfully.');
+          // Do NOT delete eventManager entry here.
+          // executeAgent's finally block handles cleanup after the agent loop completes.
+          // Deleting here causes a race: callLLM still running -> push() -> undefined -> crash.
+          console.log('[Route] Stream closed. Agent loop will clean up when done.');
         } catch (err) {
           console.error('[Route] ERROR during abort cleanup:', err);
         }

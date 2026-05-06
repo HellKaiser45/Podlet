@@ -14,6 +14,19 @@ export class AgentChatLoop {
   private appContainer: AppContainer;
   private vfs: VirtualFileSystem
 
+  /**
+   * Safely emit an event to the event stream.
+   * Handles cases where the SSE connection dropped and eventManager entry was cleaned up.
+   */
+  private emit(event: CustomBaseEvent): void {
+    const stream = this.appContainer.eventManager[this.context.input.runId];
+    if (!stream) {
+      console.warn('[chat-loop] emit: eventManager entry gone for runId', this.context.input.runId, '- dropping event:', event.type);
+      return;
+    }
+    stream.push(event);
+  }
+
   constructor(
     ex: ExecutionContext,
     appcontainer: AppContainer,
@@ -48,7 +61,7 @@ export class AgentChatLoop {
           await this.ToolsNode()
           break;
         case AgentState.AWAITING_APPROVAL:
-          this.appContainer.eventManager[this.context.input.runId].push({
+          this.emit({
             AgentId: this.agentDef.agentId,
             type: "CUSTOM" as any,
             name: "AWAITING_APPROVAL",
@@ -73,7 +86,7 @@ export class AgentChatLoop {
     }
 
     console.error('[chat-loop] Max iterations reached');
-    this.appContainer.eventManager[this.context.input.runId].push({
+    this.emit({
       AgentId: this.agentDef.agentId,
       type: EventType.RUN_ERROR,
       message: `Max iterations (${this.context.maxIterations}) reached`
@@ -83,13 +96,13 @@ export class AgentChatLoop {
   }
 
   private transitionTo(newState: AgentState) {
-    this.appContainer.eventManager[this.context.input.runId].push({
+    this.emit({
       AgentId: this.agentDef.agentId,
       type: EventType.STEP_FINISHED,
       stepName: this.context.currentState
     })
     this.context.currentState = newState;
-    this.appContainer.eventManager[this.context.input.runId].push({
+    this.emit({
       AgentId: this.agentDef.agentId,
       type: EventType.STEP_STARTED,
       stepName: newState
@@ -105,7 +118,7 @@ export class AgentChatLoop {
 
       for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs)) {
         if (!choice.choices || choice.choices.length === 0) continue;
-        this.appContainer.eventManager[this.context.input.runId].push({
+        this.emit({
           AgentId: this.agentDef.agentId,
           type: EventType.TEXT_MESSAGE_CHUNK,
           message_id: messageId,
@@ -138,7 +151,7 @@ export class AgentChatLoop {
       const errMsg = error instanceof Error ? error.message : String(error);
       this.context.error = errMsg;
       console.error('[chat-loop] callLLM failed:', error);
-      this.appContainer.eventManager[this.context.input.runId].push({
+      this.emit({
         AgentId: this.agentDef.agentId,
         type: EventType.RUN_ERROR,
         message: `LLM call failed: ${errMsg}`
@@ -154,8 +167,7 @@ export class AgentChatLoop {
     for (const call of calls) {
       if (call.type !== "function") continue;
 
-      const emit = (event: CustomBaseEvent) =>
-        this.appContainer.eventManager[this.context.input.runId].push(event);
+      const emit = (event: CustomBaseEvent) => this.emit(event);
 
       emit({
         AgentId: this.agentDef.agentId,
