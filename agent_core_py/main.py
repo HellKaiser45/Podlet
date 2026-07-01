@@ -36,6 +36,10 @@ class WebChatRequest(BaseModel):
 
 @app.post("/chat/stream")
 async def chat_stream(req: WebChatRequest):
+    # print(f"""
+    # tools: {req.tools}
+    #
+    # """)
     # 1. Map the web request to our internal AgentRequest structure
     llm_config = LLMConfig(
         provider=req.provider,
@@ -80,6 +84,6 @@ async def chat_stream(req: WebChatRequest):
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disables proxy buffering (important for Nginx)
+            "X-Accel-Buffering": "no",
         },
     )

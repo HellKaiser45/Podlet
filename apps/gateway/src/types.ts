@@ -301,7 +301,7 @@ export interface ExecutionContext {
   error?: string;
 }
 
-export const DEFAULT_MAX_ITERATIONS = 100;
+export const DEFAULT_MAX_ITERATIONS = 1000;
 
 export function createContext(
   input: RunAgentInput,

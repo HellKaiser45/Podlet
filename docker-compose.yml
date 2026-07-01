@@ -1,11 +1,3 @@
-# ============================================================
-# Podlet Docker Compose
-#
-# Podlet data is always at ~/.podlet on every OS.
-# Inside the container it is mounted at /root/.podlet.
-# No .env file needed.
-# ============================================================
-
 services:
   agent-core:
     build:
