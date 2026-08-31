@@ -19,7 +19,7 @@ Podlet is a high-performance, modular orchestration system designed to manage co
 Prerequisites: Docker and Docker Compose
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh)
 # Choose option 1 (Docker)
 ```
 
@@ -32,11 +32,11 @@ docker compose run --rm gateway bun run init --docker
 docker compose up -d
 ```
 
-Visit http://localhost:3002
+Visit <http://localhost:3002>
 
 ### Native Installation
 
-Prerequisites: Bun 1.0+ and Python 3.12+
+Prerequisites: Bun 1.0+ and Python 3.12+ and Python venv
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
@@ -68,6 +68,7 @@ GATEWAY_PORT=3002    # The port exposed on your machine
 ### First-Time Setup
 
 The `init --docker` command will ask you:
+
 - LLM provider (OpenAI, Anthropic, Google, etc.) and API keys
 - Default model to use
 - MCP servers to enable
