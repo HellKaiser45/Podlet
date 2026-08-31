@@ -44,11 +44,11 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && \
 
 # Install browser dependencies for MCP servers (Playwright, Puppeteer, Selenium)
 RUN apt-get update && apt-get install -y \
-    chromium \
-    git \
-    fonts-liberation \
-    fonts-noto-color-emoji \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+  chromium \
+  git \
+  fonts-liberation \
+  fonts-noto-color-emoji \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Playwright browsers (also installs all remaining system deps)
 RUN npx playwright install --with-deps chromium
@@ -85,3 +85,4 @@ COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["bun", "run", "apps/gateway/src/start_prod_server.ts"]

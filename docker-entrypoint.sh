@@ -36,4 +36,4 @@ if [ -f "${PODLET_DATA}/podlet.db" ]; then
   echo "Database found: ${PODLET_DATA}/podlet.db (${DB_SIZE} bytes)"
 fi
 
-exec bun run apps/gateway/src/start_prod_server.ts
+exec "$@"

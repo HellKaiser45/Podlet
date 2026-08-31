@@ -59,7 +59,7 @@ export function chatRoutes(container: AppContainer) {
           });
         })
         .finally(() => {
-          stream.close().catch(() => {});
+          stream.close().catch(() => { });
           if (container.eventManager[body.runId] === stream) {
             delete container.eventManager[body.runId];
           }
@@ -120,7 +120,7 @@ export async function createServer(container: AppContainer) {
   try {
     const stat = await Bun.file('/app/frontend/dist/index.html').stat();
     staticFrontend = !!stat;
-  } catch {}
+  } catch { }
 
   const api = new Elysia({ prefix: '/api' })
     .onRequest(({ request, set }) => {
@@ -160,10 +160,10 @@ export async function createServer(container: AppContainer) {
           headers: { 'Content-Type': 'text/html' }
         });
       })
-      .listen(container.initConfig.port);
+      .listen({ port: container.initConfig.port, hostname: container.initConfig.host });
   }
 
-  return api.listen(container.initConfig.port);
+  return api.listen({ port: container.initConfig.port, hostname: container.initConfig.host });
 }
 
 export async function cleanup(container: AppContainer) {
