@@ -19,7 +19,7 @@ Podlet is a high-performance, modular orchestration system designed to manage co
 Prerequisites: Docker and Docker Compose
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh -o /tmp/p.sh; bash /tmp/p.sh
 # Choose option 1 (Docker)
 ```
 
