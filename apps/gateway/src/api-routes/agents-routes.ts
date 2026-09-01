@@ -43,9 +43,14 @@ export default function agentsRoutes(container: AppContainer) {
         const agent = await container.agentManager.create(body);
         set.status = 201;
         return agent;
-      } catch (e: any) {
-        set.status = 409;
-        return { error: e.message };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.startsWith('Invalid agent id')) {
+          set.status = 400;
+        } else {
+          set.status = 409;
+        }
+        return { error: msg };
       }
     }, {
       body: t.Object({
@@ -62,14 +67,34 @@ export default function agentsRoutes(container: AppContainer) {
     
     // PUT update agent
     .put('/:agentId', async ({ params, body, set }) => {
+      const newAgentId = body.agentId?.trim();
+      if (newAgentId && newAgentId !== params.agentId) {
+        const activeCount = Object.keys(container.eventManager).length;
+        if (activeCount > 0) {
+          set.status = 409;
+          return { error: `Cannot rename agent while ${activeCount} active stream(s) are running. Please wait for them to finish.` };
+        }
+      }
       try {
         return await container.agentManager.update(params.agentId, body);
-      } catch (e: any) {
-        set.status = 404;
-        return { error: e.message };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.startsWith('Agent already exists')) {
+          set.status = 409;
+        } else if (msg.startsWith('Invalid agent id')) {
+          set.status = 400;
+        } else if (msg.startsWith('Agent not found') || msg.startsWith('Agent file not found')) {
+          set.status = 404;
+        } else {
+          // unexpected failures (e.g. Bun fs errors) can leak absolute server paths
+          set.status = 500;
+          return { error: 'Internal server error while updating agent' };
+        }
+        return { error: msg };
       }
     }, {
       body: t.Object({
+        agentId: t.Optional(t.String()),
         agentDescription: t.Optional(t.String()),
         model: t.Optional(t.String()),
         system_prompt: t.Optional(t.String()),

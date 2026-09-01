@@ -227,9 +227,16 @@ export function selectAgent(id: string | null): void {
   setPendingDelete(false);
 }
 
-export async function createNewAgent(): Promise<Agent> {
+export async function createNewAgent(): Promise<Agent | null> {
+  const existing = agents();
+  let agentId = "new-agent";
+  let n = 2;
+  while (existing[agentId]) {
+    agentId = `new-agent-${n}`;
+    n++;
+  }
   const agent: Agent = {
-    agentId: "new-agent",
+    agentId,
     agentDescription: "",
     model: "",
     system_prompt: "",
@@ -241,8 +248,10 @@ export async function createNewAgent(): Promise<Agent> {
   if (ok) {
     setAgents((prev) => ({ ...prev, [agent.agentId]: agent }));
     setSelectedAgentId(agent.agentId);
+    return agent;
   }
-  return agent;
+  setSaveStatus("ERROR");
+  return null;
 }
 
 export async function updateAgentField(
@@ -275,6 +284,57 @@ export async function updateAgentField(
   } else {
     await doSave();
   }
+}
+
+export async function renameAgent(newAgentId: string): Promise<boolean> {
+  const id = selectedAgentId();
+  if (!id) return false;
+  const trimmed = newAgentId.trim();
+  if (!trimmed) return false;
+  if (trimmed === id) return true;
+
+  if (debounceTimer !== null) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+
+  setSaveStatus("SAVING");
+  const ok = await updateAgent(id, {
+    agentId: trimmed,
+    agentDescription: agents()[id]?.agentDescription,
+  });
+  if (!ok) {
+    setSaveStatus("ERROR");
+    return false;
+  }
+
+  setAgents((prev) => {
+    const next: Record<string, Agent> = {};
+    for (const [key, value] of Object.entries(prev)) {
+      if (key === id) {
+        next[trimmed] = { ...value, agentId: trimmed };
+      } else {
+        const subAgents = value.subAgents;
+        next[key] =
+          subAgents && subAgents.includes(id)
+            ? { ...value, subAgents: subAgents.map((s) => (s === id ? trimmed : s)) }
+            : value;
+      }
+    }
+    return next;
+  });
+  if (selectedAgentId() === id) {
+    setSelectedAgentId(trimmed);
+  }
+
+  const { selectedAgent: chatAgent, setSelectedAgent: setChatAgent } =
+    await import("./chatInput.store");
+  if (chatAgent() === id) {
+    setChatAgent(trimmed);
+  }
+
+  setSaveStatus("SAVED");
+  return true;
 }
 
 export function confirmDelete(): void {

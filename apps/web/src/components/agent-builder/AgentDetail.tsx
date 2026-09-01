@@ -1,4 +1,4 @@
-import { type Component, Show } from "solid-js";
+import { type Component, Show, createEffect, createSignal, untrack } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import uuidv4 from "../../utils/uuid";
 import {
@@ -7,6 +7,7 @@ import {
   pendingDelete,
   saveStatus,
   updateAgentField,
+  renameAgent,
   confirmDelete,
   initiateChat,
 } from "../../stores/agent-builder.store";
@@ -30,6 +31,59 @@ const SectionLabel: Component<{ label: string; count?: number }> = (props) => (
 const AgentDetail: Component = () => {
   const agent = selectedAgent;
   const navigate = useNavigate();
+
+  const [idDraft, setIdDraft] = createSignal("");
+  const [idError, setIdError] = createSignal(false);
+  let idInputRef: HTMLInputElement | undefined;
+  let renameInFlight = false;
+
+  createEffect(() => {
+    selectedAgentId();
+    untrack(() => setIdDraft(agent()?.agentId ?? ""));
+    setIdError(false);
+  });
+
+  const commitId = (userCommitted: boolean) => {
+    const current = agent()?.agentId;
+    if (!current || renameInFlight) return;
+    const val = idDraft().trim();
+    if (!val || val === current) {
+      setIdDraft(current);
+      setIdError(false);
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]{1,58}$/.test(val)) {
+      setIdError(true);
+      if (userCommitted) {
+        idInputRef?.focus();
+      } else {
+        setIdDraft(current);
+      }
+      return;
+    }
+    setIdError(false);
+    renameInFlight = true;
+    setIdDraft(val);
+    renameAgent(val).then((ok) => {
+      renameInFlight = false;
+      if (!ok) {
+        setIdDraft(agent()?.agentId ?? val);
+      }
+    });
+  };
+
+  const onIdKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitId(true);
+      if (!idError()) idInputRef?.blur();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setIdDraft(agent()?.agentId ?? "");
+      setIdError(false);
+      idInputRef?.blur();
+    }
+  };
 
   const onDescriptionBlur = (e: FocusEvent) => {
     const val = (e.target as HTMLTextAreaElement).value;
@@ -70,8 +124,24 @@ const AgentDetail: Component = () => {
       <div class="h-full overflow-y-auto flex flex-col bg-base-100 border border-base-content/10">
         {/* Header */}
         <div class="flex items-center justify-between px-4 py-3 border-b border-base-content/10">
-          <div class="text-lg font-bold font-mono truncate min-w-0">
-            {agent()?.agentId}
+          <div class="flex flex-col min-w-0 flex-1">
+            <Show when={idError()}>
+              <div id="agent-id-error" class="text-[10px] font-bold uppercase text-error leading-none mb-1">
+                ID: letters, digits, - and _ only, max 58
+              </div>
+            </Show>
+            <input
+              ref={(el) => (idInputRef = el)}
+              class="w-full min-w-0 truncate text-lg font-bold font-mono bg-transparent border-none outline-none focus:outline-none px-0"
+              aria-label="Agent ID"
+              aria-invalid={idError()}
+              aria-describedby={idError() ? "agent-id-error" : undefined}
+              value={idDraft()}
+              onInput={(e) => setIdDraft(e.currentTarget.value)}
+              onBlur={() => commitId(false)}
+              onKeyDown={onIdKeyDown}
+              spellcheck={false}
+            />
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button

@@ -91,7 +91,7 @@ export default class AppContainer {
 
     this.watchers.push(
       watch(join(this.initConfig.podeletDir, 'agents'), { recursive: true },
-        this.debounce('agents', async () => await this.agentManager.loadAll(), 500))
+        this.debounce('agents', async () => await this.agentManager.reload(), 500))
     );
   }
 

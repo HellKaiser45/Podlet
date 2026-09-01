@@ -25,14 +25,32 @@ export default class AgentsManager {
     const filePaths = allFiles.filter(f => f.endsWith('.json'));
 
     const results = await Promise.all(
-      filePaths.map(filePath => import(join(this.agentsDir, filePath)))
+      filePaths.map(async filePath => {
+        try {
+          // Bun caches import()ed modules by path, so in-place rewrites (the
+          // rename cascade) would stay invisible to this reload
+          return (await Bun.file(join(this.agentsDir, filePath)).json()) as Agent;
+        } catch (e) {
+          console.warn(`[AgentsManager] skipping unreadable agent file: ${filePath}`, e);
+          return null;
+        }
+      })
     );
 
     for (let i = 0; i < results.length; i++) {
-      const agent = results[i].default as Agent;
+      const agent = results[i];
+      if (!agent) continue;
+      if (typeof agent.agentId !== 'string' || !/^[a-zA-Z0-9_-]{1,58}$/.test(agent.agentId)) {
+        console.warn(`[AgentsManager] skipping agent file with invalid agent id: ${filePaths[i]}`);
+        continue;
+      }
       this.agents[agent.agentId] = agent;
       this.agentIdToFilename.set(agent.agentId, filePaths[i]);
     }
+  }
+
+  async reload() {
+    return this.serialQueue.enqueue(() => this.loadAll());
   }
 
   async getAgentprompt(agentId: string) {
@@ -66,6 +84,9 @@ export default class AgentsManager {
 
   async create(agent: Agent): Promise<Agent> {
     return this.serialQueue.enqueue(async () => {
+      if (!/^[a-zA-Z0-9_-]{1,58}$/.test(agent.agentId)) {
+        throw new Error('Invalid agent id: use letters, digits, - or _ (max 58)');
+      }
       if (this.agents[agent.agentId]) {
         throw new Error('Agent already exists: ' + agent.agentId);
       }
@@ -84,12 +105,68 @@ export default class AgentsManager {
       if (!existing) {
         throw new Error('Agent not found: ' + agentId);
       }
-      const { agentId: _, ...safePartial } = partial;
-      const updated = { ...existing, ...safePartial };
       const filename = this.agentIdToFilename.get(agentId);
       if (!filename) {
         throw new Error('Agent file not found: ' + agentId);
       }
+      const { agentId: requestedAgentId, ...safePartial } = partial;
+      const newAgentId = requestedAgentId?.trim();
+
+      if (newAgentId && newAgentId !== agentId) {
+        if (!/^[a-zA-Z0-9_-]{1,58}$/.test(newAgentId)) {
+          throw new Error('Invalid agent id: use letters, digits, - or _ (max 58)');
+        }
+        if (this.agents[newAgentId]) {
+          throw new Error('Agent already exists: ' + newAgentId);
+        }
+
+        const renamed: Agent = { ...existing, ...safePartial, agentId: newAgentId };
+        const newFilename = this.toFilename(newAgentId);
+        for (const [otherId, otherFilename] of this.agentIdToFilename) {
+          if (otherId !== agentId && otherFilename === newFilename) {
+            throw new Error('Filename collision: ' + newFilename);
+          }
+        }
+        await Bun.file(join(this.agentsDir, newFilename)).write(JSON.stringify(renamed, null, 2));
+        // only unlink when the filename actually changed: a slug+hash collision
+        // between old and new id would otherwise delete the file we just wrote
+        if (newFilename !== filename) {
+          try {
+            await Bun.file(join(this.agentsDir, filename)).unlink();
+          } catch (e) {
+            console.error(`[AgentsManager] failed to unlink old agent file: ${filename}`, e);
+          }
+        }
+
+        delete this.agents[agentId];
+        this.agents[newAgentId] = renamed;
+        this.agentIdToFilename.delete(agentId);
+        this.agentIdToFilename.set(newAgentId, newFilename);
+
+        for (const [otherId, otherAgent] of Object.entries(this.agents)) {
+          if (otherId === newAgentId) continue;
+          const subAgents = otherAgent.subAgents;
+          if (subAgents?.includes(agentId)) {
+            const cascaded: Agent = {
+              ...otherAgent,
+              subAgents: subAgents.map((id) => (id === agentId ? newAgentId : id)),
+            };
+            this.agents[otherId] = cascaded;
+            const otherFilename = this.agentIdToFilename.get(otherId);
+            if (otherFilename) {
+              try {
+                await Bun.file(join(this.agentsDir, otherFilename)).write(JSON.stringify(cascaded, null, 2));
+              } catch (e) {
+                console.warn(`[AgentsManager] cascade write failed for agent: ${otherId}`, e);
+              }
+            }
+          }
+        }
+
+        return renamed;
+      }
+
+      const updated = { ...existing, ...safePartial };
       const filepath = join(this.agentsDir, filename);
       await Bun.file(filepath).write(JSON.stringify(updated, null, 2));
       this.agents[agentId] = updated;

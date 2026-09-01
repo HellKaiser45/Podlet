@@ -6,14 +6,12 @@
     "apps/*",
     "packages/*"
   ],
-  
   "scripts": {
     "init": "bun run scripts/init.ts",
     "start": "bun run scripts/start.ts",
     "dev:gateway": "bun --filter @podlet/gateway dev",
     "dev:web": "bun --filter @podlet/web dev"
-  }
-,
+  },
   "dependencies": {
     "@elysiajs/openapi": "^1.4.14",
     "officeparser": "^6.0.7",
