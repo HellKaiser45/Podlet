@@ -5,6 +5,6 @@
   "system_prompt": "coder_agent.md",
   "mcps": ["context7"],
   "skills": ["debugging-and-error-recovery", "security-best-practices"],
-  "subAgents": ["PODLET Frontend Coder Agent"]
+  "subAgents": ["frontend-coder"]
 }
 

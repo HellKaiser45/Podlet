@@ -1,5 +1,5 @@
 {
-  "agentId": "Documentation Master Agent",
+  "agentId": "documentation-master",
   "agentDescription": "Reads, writes, converts, and creates professional documents (PDF, DOCX, PPTX, Markdown, HTML) and written communications (memos, PRs, reports, presentations). Use when a task involves any form of document handling or professional writing.",
   "model": "fast",
   "system_prompt": "documentation_master.md",
