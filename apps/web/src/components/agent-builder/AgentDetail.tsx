@@ -1,5 +1,6 @@
 import { type Component, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import uuidv4 from "../../utils/uuid";
 import {
   selectedAgent,
   selectedAgentId,
@@ -78,7 +79,7 @@ const AgentDetail: Component = () => {
               onClick={() => {
                 const id = agent()?.agentId;
                 if (id) {
-                  const runId = crypto.randomUUID();
+                  const runId = uuidv4();
                   initiateChat(id);
                   navigate("/chat/" + runId);
                 }

@@ -1,5 +1,6 @@
 import { createAsync, useNavigate, query, revalidate } from "@solidjs/router";
 import { api } from "../utils/api/share.api";
+import uuidv4 from "../utils/uuid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -90,7 +91,7 @@ export default function Sidebar(props: { children: any }) {
           <div class="px-3 mb-2">
             <button
               class="btn btn-primary btn-sm w-full gap-2 is-drawer-close:btn-square is-drawer-close:w-10 is-drawer-close:mx-auto"
-              onClick={() => navigate(`/chat/${crypto.randomUUID()}`)}
+              onClick={() => navigate(`/chat/${uuidv4()}`)}
               onMouseEnter={(e) => showTooltip(e, "New Chat")}
               onMouseLeave={hideTooltip}
             >
