@@ -63,7 +63,7 @@ COPY packages/types/package.json packages/types/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/api-client/package.json packages/api-client/package.json
 
-RUN bun install --production
+RUN bun install
 
 # Copy gateway source, shared packages, and scripts
 COPY apps/gateway/ apps/gateway/
