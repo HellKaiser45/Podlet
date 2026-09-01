@@ -5,10 +5,8 @@ agent_core_py/.venv
 apps/web/dist
 *.db
 *.db-journal
-.podlet
 .env
 .env.*
-!.env.docker.example
+!.env.example
 README.md
 LICENSE
-podlet-logo.png

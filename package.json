@@ -6,15 +6,14 @@
     "apps/*",
     "packages/*"
   ],
+  
   "scripts": {
-    "dev:@podlet/gateway": "bun --filter gateway dev",
-    "dev:web": "bun --filter web dev",
-    "install:all": "bun install",
     "init": "bun run scripts/init.ts",
     "start": "bun run scripts/start.ts",
-    "start:gateway": "bun run apps/gateway/src/start_prod_server.ts",
-    "start:python": "cd agent_core_py && .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000"
-  },
+    "dev:gateway": "bun --filter @podlet/gateway dev",
+    "dev:web": "bun --filter @podlet/web dev"
+  }
+,
   "dependencies": {
     "@elysiajs/openapi": "^1.4.14",
     "officeparser": "^6.0.7",

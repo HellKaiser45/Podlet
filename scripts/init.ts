@@ -53,12 +53,12 @@ async function askSecret(question: string): Promise<string> {
 // ── Provider defaults ────────────────────────────────────
 
 const PROVIDER_DEFAULTS: Record<string, { model: string; url?: string }> = {
-  openai:     { model: 'gpt-4o-mini' },
-  anthropic:  { model: 'claude-sonnet-4' },
+  openai: { model: 'gpt-4o-mini' },
+  anthropic: { model: 'claude-sonnet-4' },
   openrouter: { model: 'google/gemma-4-31b-it' },
-  zai:        { model: 'GLM-5.1', url: 'https://api.z.ai/api/coding/paas/v4' },
-  ollama:     { model: 'llama3.2', url: 'http://localhost:11434/v1' },
-  gemini:     { model: 'gemini-2.0-flash-exp' },
+  zai: { model: 'GLM-5.1', url: 'https://api.z.ai/api/coding/paas/v4' },
+  ollama: { model: 'llama3.2', url: 'http://localhost:11434/v1' },
+  gemini: { model: 'gemini-2.0-flash-exp' },
 };
 
 // ── Main ─────────────────────────────────────────────────
@@ -125,10 +125,10 @@ async function main() {
   // ── Prompts ──────────────────────────────────────────
   console.log('\n  Configuration\n  ─────────────');
 
-  const gatewayPort  = Number(await ask('Gateway port', '3000'));
-  const pythonPort   = Number(await ask('Python backend port', '8000'));
-  const webPort      = Number(await ask('Web UI port', '3002'));
-  const safemode     = await askYesNo('Enable safemode (human approval for tool calls)', false);
+  const gatewayPort = Number(await ask('Gateway port', '3000'));
+  const pythonPort = Number(await ask('Python backend port', '8000'));
+  const webPort = Number(await ask('Web UI port', '3002'));
+  const safemode = await askYesNo('Enable safemode (human approval for tool calls)', false);
 
   // ── LLM providers ────────────────────────────────────
   interface ProviderEntry { provider: string; model: string; base_url?: string; envVar: string; apiKey: string }
@@ -142,10 +142,10 @@ async function main() {
 
     for (const p of selected) {
       const def = PROVIDER_DEFAULTS[p] || { model: 'unknown' };
-      const model   = await ask(`  Model for ${p}`, def.model);
+      const model = await ask(`  Model for ${p}`, def.model);
       const baseUrl = await ask(`  Base URL for ${p} (empty = default)`, def.url || '');
-      const envVar  = await ask(`  API key env var for ${p}`, `${p.toUpperCase()}_API_KEY`);
-      const apiKey  = await askSecret(`  API key for ${p}`);
+      const envVar = await ask(`  API key env var for ${p}`, `${p.toUpperCase()}_API_KEY`);
+      const apiKey = await askSecret(`  API key for ${p}`);
       providers.push({ provider: p, model, ...(baseUrl ? { base_url: baseUrl } : {}), envVar, apiKey });
     }
   }
@@ -158,12 +158,12 @@ async function main() {
 
   // ── Write config files ───────────────────────────────
   console.log('\n  Writing configuration...');
-  mkdirSync(path.join(podletDir, 'agents'),  { recursive: true });
+  mkdirSync(path.join(podletDir, 'agents'), { recursive: true });
   mkdirSync(path.join(podletDir, 'prompts'), { recursive: true });
 
   // config.json
   const configJson = {
-    server:   { port: gatewayPort, host: isDocker ? '0.0.0.0' : '127.0.0.1', pythonPort, webPort },
+    server: { port: gatewayPort, host: isDocker ? '0.0.0.0' : '127.0.0.1', pythonPort, webPort },
     database: { path: 'podlet.db' },
     features: { safemode },
   };
@@ -193,7 +193,7 @@ async function main() {
   writeFileSync(path.join(podletDir, 'mcp.json'), JSON.stringify(mcpDefault ? {
     mcpServers: {
       'ddg-search': { command: 'uvx', args: ['duckduckgo-mcp-server'] },
-      'context7':   { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
+      'context7': { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
     },
   } : { mcpServers: {} }, null, 2));
 
@@ -216,7 +216,7 @@ async function main() {
   }
 
   // ── Skills symlink (with Windows fallback) ───────────
-  const skillsSrc  = path.join(repoRoot, '.podlet', 'skills');
+  const skillsSrc = path.join(repoRoot, '.podlet', 'skills');
   const skillsDest = path.join(podletDir, 'skills');
   if (existsSync(skillsSrc) && !existsSync(skillsDest)) {
     if (isDocker) {

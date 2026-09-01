@@ -46,8 +46,6 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && \
 RUN apt-get update && apt-get install -y \
   chromium \
   git \
-  fonts-liberation \
-  fonts-noto-color-emoji \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Playwright browsers (also installs all remaining system deps)
@@ -71,12 +69,11 @@ RUN bun install --production
 COPY apps/gateway/ apps/gateway/
 COPY packages/ packages/
 COPY scripts/ scripts/
+COPY .podlet/ .podlet/
 COPY tsconfig.json tsconfig.json
 
 # Copy the built frontend from Stage 1
 COPY --from=frontend-build /app/apps/web/dist /app/frontend/dist
-
-EXPOSE 3000
 
 # Ensure homedir() resolves to /root so ~/.podlet matches the volume mount
 ENV HOME=/root

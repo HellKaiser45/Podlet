@@ -12,7 +12,7 @@ services:
     build:
       context: .
     ports:
-      - "${GATEWAY_PORT:-3002}:3000"
+      - 3000:3000
     environment:
       - PODLET_DOCKER=1
       - LLM_SERVICE_HOST=agent-core

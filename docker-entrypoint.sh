@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-# Podlet Gateway Docker Entrypoint
-
 PODLET_DATA="/root/.podlet"
 
 echo "Starting Podlet Gateway..."
@@ -22,8 +20,9 @@ if [ ! -f "${PODLET_DATA}/config.json" ]; then
   echo ""
   echo "No config.json found in ${PODLET_DATA}"
   echo ""
-  echo "To set up Podlet, run:"
-  echo "  docker compose run --rm -it gateway bun run init"
+  echo "Initializing folder Podlet Folder"
+  cp -r ".podlet/." "${PODLET_DATA}/"
+  mv "${PODLET_DATA}/.env.example" "${PODLET_DATA}/.env"
   echo ""
   echo "Starting with default settings..."
   echo "============================================"
