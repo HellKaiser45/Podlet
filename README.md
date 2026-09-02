@@ -34,26 +34,21 @@ Podlet runs as a **server on your machine**. It exposes a web UI and an HTTP API
 
 ## Quick Start
 
-*Two ways to run Podlet — pick one, or let the installer ask you.*
+*Two ways to run Podlet — pick one.*
 
-### One-liner install (Linux / macOS)
+### 🐳 Docker
+
+**Prerequisites:** Docker and Docker Compose.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh)
+git clone https://github.com/HellKaiser45/Podlet.git
+cd Podlet
+docker compose up -d
 ```
 
-Pass a directory as the first argument to install elsewhere (default: `~/podlet`).
+Open **http://localhost:3000**.
 
-### One-liner install (Windows PowerShell)
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 -OutFile install.ps1; .\install.ps1"
-```
-
-**What the installer does** — clones (or updates) the repo into `~/podlet`, asks **Docker or native**, checks the prerequisites for your choice (Docker + Compose, or Bun + Python 3.12+), runs the setup step for that mode, and prints the exact start command. Everything it configures lives in `~/.podlet` — the repo is just code.
-
-<details>
-<summary>Manual install — from source</summary>
+### ⚡ From source
 
 **Prerequisites:** [Bun](https://bun.sh) and Python 3.12.
 
@@ -66,23 +61,6 @@ bun run start     # starts all three services
 ```
 
 Open **http://localhost:3002**.
-
-</details>
-
-<details>
-<summary>Manual install — Docker</summary>
-
-**Prerequisites:** Docker and Docker Compose.
-
-```bash
-git clone https://github.com/HellKaiser45/Podlet.git
-cd Podlet
-docker compose up -d
-```
-
-Open **http://localhost:3000**.
-
-</details>
 
 ### Docker or source — which one?
 
@@ -129,8 +107,13 @@ The compose file maps the gateway as `3000:3000`. To expose Podlet on a differen
 
 ### Data management
 
-- **Backup** — `cp -r ~/.podlet ~/podlet-backup`
-- **Reset** — `rm -rf ~/.podlet && docker compose up -d` (first run re-seeds everything from the image)
+```bash
+# Backup
+cp -r ~/.podlet ~/podlet-backup
+
+# Full reset (first run re-seeds everything from the image)
+rm -rf ~/.podlet && docker compose up -d
+```
 
 > [!CAUTION]
 > The reset command deletes **all** Podlet data: agents, prompts, skills, chat history, and API keys. There is no confirmation prompt.

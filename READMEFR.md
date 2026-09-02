@@ -40,28 +40,11 @@ Podlet est un système d'orchestration d'agents IA : une passerelle TypeScript r
 
 ## Démarrage Rapide
 
-*Deux façons de lancer Podlet — l'installateur vous demande laquelle.*
+*Deux façons de lancer Podlet — choisissez la vôtre.*
 
-### Installation en une ligne (Linux / macOS)
+### 🐳 Docker
 
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh)
-```
-
-Passez un répertoire en premier argument pour installer ailleurs (défaut : `~/podlet`).
-
-### Installation en une ligne (Windows PowerShell)
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 -OutFile install.ps1; .\install.ps1"
-```
-
-**Ce que fait l'installateur** — il clone (ou met à jour) le dépôt dans `~/podlet`, demande **Docker ou natif**, vérifie les prérequis correspondants (Docker + Compose, ou Bun + Python 3.12+), lance l'étape de configuration du mode choisi et affiche la commande de démarrage exacte. Tout ce qu'il configure vit dans `~/.podlet` — le dépôt ne contient que le code.
-
-<details>
-<summary>Installation manuelle — Docker</summary>
-
-**Prérequis :** Docker et Docker Compose
+**Prérequis :** Docker et Docker Compose.
 
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
@@ -71,26 +54,19 @@ docker compose up -d
 
 Ouvrez **http://localhost:3000**.
 
-> Utilisateurs Windows : le montage de données utilise `$HOME/.podlet`, souvent absent d'un shell Windows standard. Définissez `HOME` (ou utilisez WSL) avant `docker compose up`.
+### ⚡ Depuis les sources
 
-</details>
-
-<details>
-<summary>Installation manuelle — natif</summary>
-
-**Prérequis :** [Bun](https://bun.sh) et Python 3.12+
+**Prérequis :** [Bun](https://bun.sh) et Python 3.12.
 
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
 bun run init      # configuration initiale (initialise ~/.podlet)
-bun run start
+bun run start     # démarre les trois services
 ```
 
 L'interface est disponible sur **http://localhost:3002**.
-
-</details>
 
 ### Docker ou natif — lequel choisir ?
 
@@ -115,6 +91,9 @@ L'interface est disponible sur **http://localhost:3002**.
 ## Configuration Docker
 
 Les conteneurs montent `~/.podlet` (bind mount, pas de volume nommé) — mêmes données que le mode natif.
+
+> [!NOTE]
+> **Utilisateurs Windows :** le montage utilise `$HOME/.podlet`, souvent absent d'un shell Windows standard. Définissez `HOME` (`set HOME=%USERPROFILE%`) ou utilisez WSL avant `docker compose up`.
 
 ### Modifier le port exposé
 
