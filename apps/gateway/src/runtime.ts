@@ -34,22 +34,22 @@ export default class AppContainer {
 
   constructor(appconfig: AppConfig) {
     this.initConfig = appconfig
-    const db = createDB(appconfig.podeletDir, appconfig.dbName)
+    const db = createDB(appconfig.podletDir, appconfig.dbName)
     this.frameCRUD = new FrameCRUDClient(db)
     this.historyManager = new HistoryCRUDClient(db)
     this.hillManager = new HilManager(appconfig.safemode)
-    this.mcpManager = new MCPManager(appconfig.podeletDir)
-    this.modelManager = new ModelsManager(appconfig.podeletDir)
-    this.skillManager = new SkillsManager(appconfig.podeletDir)
-    this.agentManager = new AgentsManager(appconfig.podeletDir)
-    this.promptManager = new PromptsManager(appconfig.podeletDir)
+    this.mcpManager = new MCPManager(appconfig.podletDir)
+    this.modelManager = new ModelsManager(appconfig.podletDir)
+    this.skillManager = new SkillsManager(appconfig.podletDir)
+    this.agentManager = new AgentsManager(appconfig.podletDir)
+    this.promptManager = new PromptsManager(appconfig.podletDir)
     this.agentToolsManager = new AgentToolManager(this)
     this.agentClient = new AgentClient(this)
     this.orchestrator = new AgentOrchestrator(this)
   }
 
   async init() {
-    await createfilesystem(this.initConfig.podeletDir)
+    await createfilesystem(this.initConfig.podletDir)
 
     await Promise.all([
       this.mcpManager.init(),
@@ -75,22 +75,22 @@ export default class AppContainer {
 
   private async startwatchers() {
     this.watchers.push(
-      watch(join(this.initConfig.podeletDir, 'skills'), { recursive: true },
+      watch(join(this.initConfig.podletDir, 'skills'), { recursive: true },
         this.debounce('skills', async () => await this.skillManager.LoadSkillsDefs(), 500))
     );
 
     this.watchers.push(
-      watch(join(this.initConfig.podeletDir, 'models.json'),
+      watch(join(this.initConfig.podletDir, 'models.json'),
         this.debounce('models', async () => await this.modelManager.init(), 500))
     );
 
     this.watchers.push(
-      watch(join(this.initConfig.podeletDir, 'mcp.json'),
+      watch(join(this.initConfig.podletDir, 'mcp.json'),
         this.debounce('mcps', async () => await this.mcpManager.init(), 500))
     );
 
     this.watchers.push(
-      watch(join(this.initConfig.podeletDir, 'agents'), { recursive: true },
+      watch(join(this.initConfig.podletDir, 'agents'), { recursive: true },
         this.debounce('agents', async () => await this.agentManager.reload(), 500))
     );
   }

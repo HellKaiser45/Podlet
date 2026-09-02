@@ -3,8 +3,8 @@ import { homedir } from 'os';
 import type { AppConfig, ConfigFile } from '@podlet/types';
 
 async function loadConfig(): Promise<AppConfig> {
-  const podeletDir = join(homedir(), '.podlet');
-  const configPath = join(podeletDir, 'config.json');
+  const podletDir = join(homedir(), '.podlet');
+  const configPath = join(podletDir, 'config.json');
 
   let configFile: ConfigFile = {};
 
@@ -23,7 +23,7 @@ async function loadConfig(): Promise<AppConfig> {
   let host = configFile.server?.host ?? '127.0.0.1';
   const dbName = configFile.database?.path ?? 'podlet.db';
   const safemode = configFile.features?.safemode ?? false;
-  const dbPath = join(podeletDir, dbName);
+  const dbPath = join(podletDir, dbName);
 
   const llmApiUrl = process.env.LLM_SERVICE_HOST
     ? `http://${process.env.LLM_SERVICE_HOST}:${pythonPort}`
@@ -38,7 +38,7 @@ async function loadConfig(): Promise<AppConfig> {
   }
 
   return {
-    podeletDir,
+    podletDir,
     dbName,
     dbPath,
     llmApiUrl,

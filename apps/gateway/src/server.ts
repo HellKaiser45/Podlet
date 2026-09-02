@@ -104,7 +104,7 @@ export function chatRoutes(container: AppContainer) {
       const exists = await container.historyManager.exists(params.runid);
       if (exists) await container.historyManager.deleteByRunId(params.runid)
 
-      const virtualManager = new VirtualFileSystem(container.initConfig.podeletDir, params.runid)
+      const virtualManager = new VirtualFileSystem(container.initConfig.podletDir, params.runid)
       virtualManager.deleteFolder(params.runid)
     })
 }

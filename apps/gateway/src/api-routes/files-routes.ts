@@ -22,7 +22,7 @@ function getVFS(rootDir: string, runId: string, cwd?: string): VirtualFileSystem
 export default function filesRoutes(container: AppContainer) {
   return new Elysia({ prefix: '/file' })
     .post('/upload', async function ({ body }) {
-      const virtualManager = getVFS(container.initConfig.podeletDir, body.runId, body.cwd)
+      const virtualManager = getVFS(container.initConfig.podletDir, body.runId, body.cwd)
 
       const result = await virtualManager.upload(body)
       console.log('upload result: ', result)
@@ -33,23 +33,23 @@ export default function filesRoutes(container: AppContainer) {
     })
     .get('download-zip/:runid/:folderid', async function ({ params }) {
       const virtualPath = Buffer.from(params.folderid, 'base64url').toString();
-      const virtualManager = getVFS(container.initConfig.podeletDir, params.runid);
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid);
       return virtualManager.streamFolderAsZip(virtualPath);
     })
     .get('download/:runid/:fileid', function ({ params }) {
-      const virtualManager = getVFS(container.initConfig.podeletDir, params.runid)
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
       const bfile = virtualManager.getFile(params.fileid)
 
       return bfile
     })
     .get(':runid/:fileid', async function ({ params }) {
-      const virtualManager = getVFS(container.initConfig.podeletDir, params.runid)
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
       return virtualManager.readFileText(params.fileid)
     })
     .get(
       '/all/:runid',
       async ({ params }) => {
-        const vm = getVFS(container.initConfig.podeletDir, params.runid)
+        const vm = getVFS(container.initConfig.podletDir, params.runid)
         const ws = await vm.listFiles('workspace://')
         const art = await vm.listFiles('artifacts://')
         return ws.concat(art)
@@ -66,11 +66,11 @@ export default function filesRoutes(container: AppContainer) {
       }
     )
     .delete('/:runid/:fileid', async function ({ params }) {
-      const virtualManager = getVFS(container.initConfig.podeletDir, params.runid)
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
       return virtualManager.deleteFile(params.fileid)
     })
     .patch('/:runid/:fileid', async function ({ params, body }) {
-      const virtualManager = getVFS(container.initConfig.podeletDir, params.runid);
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid);
       await virtualManager.updateFile(params.fileid, body);
       return { success: true };
     }, {

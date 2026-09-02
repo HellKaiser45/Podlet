@@ -35,7 +35,7 @@ export class AgentClient {
     return {
       provider: model.provider,
       model: model.model,
-      configpath: this.appContainer.initConfig.podeletDir,
+      configpath: this.appContainer.initConfig.podletDir,
       api_key_name: model.api_key_name,
       temperature: model.temperature ?? undefined,
       max_tokens: model.max_tokens ?? undefined,

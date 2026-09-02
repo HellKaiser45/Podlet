@@ -106,7 +106,7 @@ export class AgentOrchestrator {
   /** Start a new execution for the agent */
   private async startNewExecution(input: RunAgentInput) {
     if (!input.message) { throw new Error('We are trying to start a new execution but a message is missing from the input') }
-    const start = new VirtualFileSystem(this.appContainer.initConfig.podeletDir, input.runId, input.cwd)
+    const start = new VirtualFileSystem(this.appContainer.initConfig.podletDir, input.runId, input.cwd)
     const blocks = await start.generateContentBlock(input.attachmentIds ?? [], input.message)
 
     const frame = await this.initFrame(input.agentId, blocks, input.runId)

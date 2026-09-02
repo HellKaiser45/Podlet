@@ -35,7 +35,7 @@ export class AgentChatLoop {
     this.appContainer = appcontainer
     this.agentDef = this.appContainer.agentManager.agents[agentId]
     this.context = ex
-    this.vfs = new VirtualFileSystem(this.appContainer.initConfig.podeletDir, this.context.input.runId, this.context.input.cwd, this.appContainer.skillManager, this.agentDef.skills)
+    this.vfs = new VirtualFileSystem(this.appContainer.initConfig.podletDir, this.context.input.runId, this.context.input.cwd, this.appContainer.skillManager, this.agentDef.skills)
     this.coreToolsManager = new CoreToolsManager(this.vfs)
   }
 

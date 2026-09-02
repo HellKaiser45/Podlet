@@ -22,16 +22,13 @@ export interface ConfigFile {
   database?: {
     path?: string;
   };
-  logging?: {
-    level?: string;
-  };
   features?: {
     safemode?: boolean;
   };
 }
 
 export interface AppConfig {
-  podeletDir: string;
+  podletDir: string;
   dbName: string;
   llmApiUrl: string;
   port: number;

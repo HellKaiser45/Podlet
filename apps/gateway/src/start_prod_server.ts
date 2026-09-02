@@ -2,7 +2,7 @@ import { prodConfig } from '@podlet/config';
 import AppContainer from './runtime';
 import { createServer, cleanup } from './server';
 
-console.log(`[Config] podeletDir: ${prodConfig.podeletDir}`);
+console.log(`[Config] podletDir: ${prodConfig.podletDir}`);
 console.log(`[Config] DB path: ${prodConfig.dbPath}`);
 console.log(`[Config] port: ${prodConfig.port}, host: ${prodConfig.host}`);
 console.log(`[Config] llmApiUrl: ${prodConfig.llmApiUrl}`);
