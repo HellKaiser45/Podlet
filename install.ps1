@@ -1,7 +1,24 @@
+#Requires -Version 5.1
+<#
+    Podlet Installer (PowerShell)
+    Equivalent of install.sh
+    Usage: .\install-podlet.ps1 [InstallDir]
+#>
+
+param(
+    [Parameter(Position = 0)]
+    [string]$InstallDir = (Join-Path $HOME "podlet")
+)
+
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $RepoUrl = "https://github.com/HellKaiser45/Podlet.git"
-$InstallDir = if ($args[0]) { $args[0] } else { Join-Path $env:USERPROFILE "podlet" }
+
+function Test-CommandExists {
+    param([string]$Name)
+    return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
+}
 
 Write-Host ""
 Write-Host "  ╔════════════════════════════════════════╗"
@@ -10,14 +27,19 @@ Write-Host "  ╚═════════════════════
 Write-Host ""
 
 # ── Clone ──────────────────────────────────────────────
-if (Test-Path $InstallDir) {
-  Write-Host "  Directory $InstallDir already exists. Pulling latest..."
-  Set-Location $InstallDir
-  git pull
+if (Test-Path -Path $InstallDir -PathType Container) {
+    Write-Host "  Directory $InstallDir already exists. Pulling latest..."
+    Set-Location -Path $InstallDir
+    try {
+        git pull
+    } catch {
+        # equivalent of `git pull || true`
+    }
 } else {
-  Write-Host "  Cloning Podlet into $InstallDir..."
-  git clone $RepoUrl $InstallDir
-  Set-Location $InstallDir
+    Write-Host "  Cloning Podlet into $InstallDir..."
+    git clone $RepoUrl $InstallDir
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Set-Location -Path $InstallDir
 }
 
 # ── Installation Choice ────────────────────────────────
@@ -29,63 +51,62 @@ Write-Host ""
 $choice = Read-Host "  Enter your choice [1/2]"
 
 if ($choice -eq "1") {
-  # ── Docker Path ──────────────────────────────────────
-  Write-Host ""
-  Write-Host "  Checking Docker prerequisites..."
-
-  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    Write-Host "  [!] docker not found. Please install Docker: https://docs.docker.com/get-docker/" -ForegroundColor Red
-    exit 1
-  }
-
-  if (-not (Get-Command "docker compose" -ErrorAction SilentlyContinue)) {
-    Write-Host "  [!] docker compose not found. Please ensure Docker Compose is installed." -ForegroundColor Red
-    exit 1
-  }
-
-  Write-Host "  Preparing Docker environment..."
-
-  $PodletDir = Join-Path $env:USERPROFILE ".podlet"
-  "PODLET_DIR=$PodletDir" | Out-File -Encoding utf8 .env
-  Write-Host "  Created .env with PODLET_DIR=$PodletDir"
-
-  Write-Host ""
-  Write-Host "  Launching setup wizard via Docker..."
-  Write-Host ""
-  docker compose run --rm gateway bun run init --docker
-
-  Write-Host ""
-  Write-Host "  Setup complete! To start Podlet:"
-  Write-Host "    docker compose up -d"
-  Write-Host ""
-  Write-Host "  Then visit: http://localhost:3002 (or the port you chose)"
-  Write-Host ""
-  Write-Host "  To stop: docker compose down"
-  Write-Host "  To view logs: docker compose logs -f gateway"
-} else {
-  # ── Native Path ──────────────────────────────────────
-  Write-Host ""
-  Write-Host "  Checking Native prerequisites..."
-  $missing = $false
-
-  if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
-    Write-Host "  [!] bun not found. Install: https://bun.sh" -ForegroundColor Red
-    $missing = $true
-  }
-
-  if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host "  [!] python not found. Install: https://www.python.org" -ForegroundColor Red
-    $missing = $true
-  }
-
-  if ($missing) {
+    # ── Docker Path ──────────────────────────────────────
     Write-Host ""
-    Write-Host "  Please install the missing dependencies and re-run this script."
-    exit 1
-  }
+    Write-Host "  Checking Docker prerequisites..."
 
-  Write-Host ""
-  Write-Host "  Launching setup wizard..."
-  Write-Host ""
-  bun run init
+    if (-not (Test-CommandExists "docker")) {
+        Write-Host "  [!] docker not found. Please install Docker: https://docs.docker.com/get-docker/"
+        exit 1
+    }
+
+    docker compose version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [!] docker compose not found. Please ensure Docker Compose is installed."
+        exit 1
+    }
+
+    Write-Host "  Preparing Docker environment..."
+    # Ensure the data directory exists
+    New-Item -ItemType Directory -Force -Path (Join-Path $HOME ".podlet") | Out-Null
+    Write-Host "  Data directory: ~/.podlet"
+    Write-Host ""
+    Write-Host "  Launching setup wizard via Docker..."
+    Write-Host ""
+    docker compose run --rm gateway bun run init --docker
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host ""
+    Write-Host "  Setup complete! To start Podlet:"
+    Write-Host "    docker compose up -d"
+    Write-Host ""
+    Write-Host "  Then visit: http://localhost:3002 (or the port you chose)"
+    Write-Host ""
+    Write-Host "  To stop: docker compose down"
+    Write-Host "  To view logs: docker compose logs -f gateway"
+} else {
+    # ── Native Path ──────────────────────────────────────
+    Write-Host ""
+    Write-Host "  Checking Native prerequisites..."
+    $missing = $false
+
+    if (-not (Test-CommandExists "bun")) {
+        Write-Host "  [!] bun not found. Install: https://bun.sh"
+        $missing = $true
+    }
+    if (-not (Test-CommandExists "python3") -and -not (Test-CommandExists "python")) {
+        Write-Host "  [!] python3 not found. Install: https://www.python.org"
+        $missing = $true
+    }
+
+    if ($missing) {
+        Write-Host ""
+        Write-Host "  Please install the missing dependencies and re-run this script."
+        exit 1
+    }
+
+    Write-Host ""
+    Write-Host "  Launching setup wizard..."
+    Write-Host ""
+    bun run init
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

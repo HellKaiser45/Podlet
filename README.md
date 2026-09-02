@@ -5,36 +5,55 @@
 **Modular AI Agent Orchestration System**
 
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Bun](https://img.shields.io/badge/Runtime-Bun-black)](https://bun.sh)
-[![Python](https://img.shields.io/badge/Backend-Python%203.10+-blue)](https://www.python.org)
 
 ## What is Podlet?
 
-Podlet is a high-performance, modular orchestration system designed to manage complex AI agent workflows. By combining a fast TypeScript gateway, a flexible Python LLM backend, and a reactive SolidJS frontend, Podlet enables the creation of specialized agents that can collaborate, use external tools via MCP (Model Context Protocol), and operate within a secure virtual filesystem.
+Podlet is a **free and open source** modular AI chat app.
 
 ## Quick Start
 
 ### Docker (Recommended)
 
-Prerequisites: Docker and Docker Compose
+Docker version offer a better safety because it runs in a separate and contained environment , only the .podlet folder is shared with the agents.
+In case of a prompt injection in a web page or something similar in a skill or mcp, this will add an additional layer of protection .
+
+There are some downsides that will make your agents more limited because of the limitations of the container and what is installed on it.
+So some mcps won't work , your system env variables won't be forwarded to the container, websearches will be more flagged as robot and likely trigger captchat and thus be rejected.
+
+But for most usecases it is sufficient while offering a superior safety layer.
+
+<span style="color:blue">Prerequisites: Docker and Docker Compose</span>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh -o /tmp/p.sh; bash /tmp/p.sh
 # Choose option 1 (Docker)
 ```
 
+This command will setup the container and the .podlet directory in your home folder. You'll need to check the config and add your models and api keys in .envs.
+
+After that you can go in the Podlet/ folder and run:
+
+`docker compose up -d`
+
 Or manually:
 
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
-docker compose run --rm gateway bun run init --docker
-docker compose up -d
+docker compose build
 ```
 
-Visit <http://localhost:3002>
+Then edit the config, models and .env in the .podlet directory in your home folder.
+
+Once the container is running it will be accessible from your network over:
+
+<http://localhost:3000> on the same machine or <http://ip-address:3000>
 
 ### Native Installation
+
+This should be use only if you need the agent to use your machine system or perform commands directly on your host system. Or if you want an agent to use commands, mcps or skills that require a specific package installed on the system and thus won't work on the docker version.
+
+While there are several mecanisms to prevent prompt injections attacks, be aware that the risk of data leaks is much higher than the docker version.
 
 Prerequisites: Bun 1.0+ and Python 3.12+ and Python venv
 
@@ -50,29 +69,14 @@ git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
 bun run init
-bun run start
 ```
+
+After that you'll have to check the config, add your models and api keys inside the .podlet folder (config.json, models.json and .env) then you can start the server (dev only for now) with:
+`bun run start`
 
 ## Docker Configuration
 
 All configuration lives in a single `config.json` file inside the Docker volume.
-
-### Port Configuration
-
-Copy `.env.docker.example` to `.env.docker` and adjust:
-
-```env
-GATEWAY_PORT=3002    # The port exposed on your machine
-```
-
-### First-Time Setup
-
-The `init --docker` command will ask you:
-
-- LLM provider (OpenAI, Anthropic, Google, etc.) and API keys
-- Default model to use
-- MCP servers to enable
-- Port to expose (default: 3002)
 
 ### Volume Management
 
@@ -82,16 +86,13 @@ All data persists in a Docker named volume:
 # Inspect volume
 docker volume inspect podlet_podlet-data
 
-# Backup
-docker run --rm -v podlet_podlet-data:/data -v $(pwd):/backup alpine tar czf /backup/podlet-backup.tar.gz -C /data .
-
 # Reset (WARNING: deletes all data)
 docker compose down -v
 ```
 
 ### MCP Servers
 
-The gateway container includes `npx` (Node.js 20) and `uvx` (Python + uv) for running MCP tool servers. Configure MCP servers during `init --docker` or edit `mcp.json` in the volume.
+The gateway container includes `npx` (Node.js 20) and `uvx` (Python + uv) for running MCP tool servers in the gateway container directly. Configure MCP servers by editing `mcp.json` in the volume (`.podlet/` folder ).
 
 ### Updating
 
@@ -123,28 +124,9 @@ docker compose logs -f agent-core
                                                      (Search, Context, etc.)
 ```
 
-### Docker Network Layout
-
-```text
-Host
-└── localhost:3002
-    └── gateway (port 3000)
-        ├── Serves frontend (static files)
-        ├── API routes (/api/*)
-        └── agent-core (port 8000, internal only)
-            └── LLM API calls
-
-Volume: podlet-data → /podlet-data
-├── config.json, models.json, mcp.json
-├── .env (API keys)
-├── agents/, prompts/, skills/
-├── podlet.db (SQLite)
-└── workspace/ (per-run files)
-```
-
 ## Configuration
 
-Podlet uses a dedicated configuration directory located at `~/.podlet/` (or the Docker volume).
+Podlet uses a dedicated configuration directory located at `~/.podlet/` .
 
 | File | Description |
 | :--- | :--- |
@@ -157,6 +139,9 @@ Podlet uses a dedicated configuration directory located at `~/.podlet/` (or the 
 | `skills/` | Directories containing skill modules (documented in `SKILL.md`). |
 
 ### config.json Schema
+
+⚠️ Ports config must not be changed if you use the Docker version.
+If you want to change the exposed port (change port 3000 to something else) you must edit the `compose.yml` file.
 
 ```json
 {
@@ -210,7 +195,7 @@ Agents are the core units of Podlet. They are defined in `~/.podlet/agents/*.jso
 
 ```json
 {
-  "agentId": "string",
+  "agentId": "string",(basically the name of the agent, it does not allow spaces and other special characters or maj)
   "agentDescription": "string",
   "model": "string (key from models.json)",
   "system_prompt": "string (filename in prompts/)",
@@ -220,26 +205,13 @@ Agents are the core units of Podlet. They are defined in `~/.podlet/agents/*.jso
 }
 ```
 
-### Seed Agents
-
-Podlet comes with a set of pre-configured agents:
-
-- **PODLET Main Orchestrator**: The primary entry point for complex tasks.
-- **Coder**: Specialized in writing and refining code.
-- **Frontend Architect / Coder**: Handles UI design and implementation.
-- **Backend Architect**: Designs API and database structures.
-- **Code Reviewer**: Analyzes code for quality and bugs.
-- **Documentation Master**: Creates professional technical docs.
-- **Asset Creator**: Manages visual/multimedia assets.
-- **Frontend Reviewer**: Audits UI/UX implementation.
-
 ## Tools System
 
 Agents have access to three categories of tools:
 
-1. **Core Tools**: Built-in capabilities like `read_file` and `execute_shell` (sandboxed).
+1. **Core Tools**: Built-in capabilities like `read_file` and `execute_shell`.
 2. **MCP Tools**: Tools provided by MCP servers defined in `mcp.json` (e.g., `ddg-search_search`).
-3. **Sub-agent Tools**: Other agents can be called as tools using the `agent_` prefix (e.g., `agent_Coder`).
+3. **Sub-agent Tools**: Other agents can be called as tools (sub-agents in the json agants).
 
 ## Skills
 
@@ -255,40 +227,33 @@ Behavioral instructions in the system prompt encourage the model to proactively 
 
 ## Human-in-the-Loop (HIL)
 
-To prevent unauthorized actions, Podlet includes a **safemode** that is now fully wired through the frontend.
+To prevent unauthorized actions, Podlet includes a **safemode** .
 
-- When `safemode` is enabled, the agent loop is monitored for destructive tool calls.
+This feature is still experimental and honestly was very difficult to implement seemlessly in the multi-agents environment.
+It may have still some issues with this and also cause a higher token consumption.
+
+When `safemode` is enabled, the agent loop is monitored for destructive tool calls.
+
 - If an approval is required, the stream emits a `CUSTOM` event with the name `AWAITING_APPROVAL`.
 - The frontend renders an **ApprovalPanel** showing each pending tool call with its arguments.
 - The user can **Approve** or **Reject** each call individually and optionally provide feedback.
 - After all decisions are collected, the agent loop resumes automatically.
 
-## Token Limits
-
-Podlet implements token budgeting on both the frontend and backend to prevent context-window overflows and unnecessary API costs.
-
-**Frontend**
-
-- Before sending a message, the UI estimates token usage:
-  - Text: `characters / 4`
-  - Images: `width * height / 750`
-- If the estimated total exceeds **50,000 tokens**, the message is rejected immediately with an inline error.
-
-**Backend**
-
-- The gateway computes the full token budget: system prompt + injected skills + file tree + conversation history + user message.
-- This total is checked against the model's `context_window` defined in `models.json` (default: **128,000**).
-- If the budget is exceeded, a `TokenLimitError` is raised and emitted as a `RUN_ERROR` SSE event with code `TOKEN_LIMIT_EXCEEDED`.
-
 ## Virtual Filesystem (VFS)
 
-Agents operate in a secure sandbox using a scheme-based VFS:
+Agents operate in a virtual file system:
 
 - `workspace://` : Read-only access to input files.
 - `artifacts://` : Write access for output files.
 - `skills://` : Access to skill-specific resources (restricted to agents possessing the skill).
 
 Real paths are mapped to `~/.podlet/workspace/{runId}/` and `~/.podlet/artifacts/{runId}/`.
+This is intended to limit the risk of prompt injections while still maintaining alot of freedom for the agent.
+This is not a guaranty working and the agent can sometimes escape this virtual environment.
+
+It was also a challenge to provide this while maintaining enough liberty to the agent. It can also be interferring with some mcps and skills that specifically reference the real filesystem which can confuse the agent.
+
+This can be annoying but it is a design choice to have an overall more guided behavior and also provide a kind of safety net against prompt injections.
 
 ## Agent Builder
 
@@ -301,11 +266,10 @@ The **Agent Builder** is the default landing page at `/`. It provides a master-d
   - **Multi-select tag pickers** for Skills, MCPs, and Sub-agents.
   - **Prompt editor** to view, edit, create, and delete system prompts stored in `prompts/`.
 - **INITIATE** button deploys the selected agent directly into the chat interface.
-- **Responsive layout**: Side-by-side on desktop, stacked on mobile.
 
 ## File Drawer
 
-The File Drawer is accessible from the chat interface and provides a full-featured file explorer for the current run.
+The File Drawer is accessible from any chat in the top right end corner (hamburger menu) and provides a full-featured file explorer for the current run with workspace (readonly and your input files) and artifacts (files produced by the agent)
 
 - **Hierarchical file tree** with expand/collapse folders.
 - **Search/filter bar** to quickly locate files.
@@ -321,102 +285,9 @@ The File Drawer is accessible from the chat interface and provides a full-featur
 
 Base URL: `http://localhost:3000/api` | Interactive Docs: `/api/openapi`
 
-### Chat
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `POST` | `/chat` | SSE stream for agent interaction. |
-| `GET` | `/history/:runid` | Retrieve history for a specific run. |
-| `GET` | `/runids` | List all session run IDs. |
-| `PATCH` | `/history/label/:runid` | Label a specific run. |
-| `DELETE` | `/chat/:runid` | Purge history and VFS for a run. |
-
-### Agents
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/agents/all` | List all defined agents. |
-| `GET` | `/agents/:agentId` | Get specific agent details. |
-| `GET` | `/agents/:agentId/prompt` | Get the agent's prompt content. |
-| `GET` | `/agents/prompts/list` | List all prompt filenames. |
-| `POST` | `/agents` | Create a new agent (body: Agent JSON). |
-| `PUT` | `/agents/:agentId` | Update an agent (body: partial Agent JSON). |
-| `DELETE` | `/agents/:agentId` | Delete an agent. |
-
-### Models
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/models/all` | List all configured LLM models. |
-| `GET` | `/models/:name` | Get a specific model configuration. |
-| `POST` | `/models` | Create a model (body: `{ name, config }`). |
-| `PUT` | `/models/:name` | Update a model (body: partial config). |
-| `DELETE` | `/models/:name` | Delete a model. |
-
-### MCPs
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/mcps/all` | List all MCP configurations. |
-| `GET` | `/mcps/running` | List running MCP instances. |
-| `GET` | `/mcps/:name` | Get a specific MCP configuration. |
-| `POST` | `/mcps` | Create an MCP (body: `{ name, config }`). |
-| `PUT` | `/mcps/:name` | Update an MCP (body: partial config). |
-| `DELETE` | `/mcps/:name` | Delete an MCP (stops it if running). |
-| `POST` | `/mcps/:name/start` | Start the MCP server. |
-| `POST` | `/mcps/:name/stop` | Stop the MCP server. |
-
-### Prompts
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/prompts/all` | List all prompt filenames. |
-| `GET` | `/prompts/:name` | Get a specific prompt's content. |
-| `POST` | `/prompts` | Create a prompt (body: `{ name, content }`). |
-| `PUT` | `/prompts/:name` | Update a prompt (body: `{ content }`). |
-| `DELETE` | `/prompts/:name` | Delete a prompt. |
-
-### Skills
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/skills/all` | List all available skills. |
-
-### Files
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `POST` | `/file/upload` | Upload files to a run. |
-| `GET` | `/file/:runid/:fileid` | Read file content. |
-| `GET` | `/file/download/:runid/:fileid` | Download a file. |
-| `GET` | `/file/download-zip/:runid/:folderid` | Download a folder as a ZIP archive. |
-| `GET` | `/file/all/:runid` | List all files for a run. |
-
-### Python Backend (Internal)
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `POST` | `http://localhost:8000/chat/stream` | LLM streaming completions. |
-
-## SSE Events
-
-The chat endpoint streams events over SSE. Clients should handle the following event types:
-
-| Event | Description |
-| :--- | :--- |
-| `RUN_STARTED` | Emitted when an agent run begins. |
-| `RUN_FINISHED` | Emitted when an agent run completes. Payload includes the final `result` with `status`. |
-| `CUSTOM` | Custom application events. Currently used for `AWAITING_APPROVAL` during HIL. |
-| `RUN_ERROR` | Emitted on unrecoverable errors. Payload includes `message` and `code` (e.g., `TOKEN_LIMIT_EXCEEDED`). |
-| `HEARTBEAT` | Periodic keep-alive ping (every 5 seconds) to prevent connection drops during long-running agent operations. |
-| `TOOL_CALL` | Emitted when an agent invokes a tool. Payload includes tool name and arguments. |
-| `TOOL_RESULT` | Emitted when a tool execution completes. Payload includes the result content. |
-| `SUBAGENT_STARTED` | Emitted when a sub-agent is invoked. Payload includes the sub-agent ID. |
-| `SUBAGENT_COMPLETED` | Emitted when a sub-agent finishes. Payload includes the sub-agent output. |
-
 ## Frontend
 
-The web UI is accessible at `http://localhost:3002` by default but can be configured in `~/.podlet/config.json`.
+The web UI is accessible at `http://localhost:3002` by default (3000 for the docker version) but can be configured in `~/.podlet/config.json`.
 
 - **Thread Management**: Sidebar for organizing conversations.
 - **Streaming UI**: Real-time responses with typing indicators.
@@ -427,9 +298,6 @@ The web UI is accessible at `http://localhost:3002` by default but can be config
 - **Typing Indicator**: Animated bouncing dots indicator while the agent is thinking or generating a response.
 - **Attachment Management**: Files up to 10 MB are supported. Attachments are automatically cleared after sending. Duplicate filenames are auto-renamed.
 - **Subagent Output**: Sub-agent responses are shown as collapsible inline blocks in the main conversation, not hidden behind a panel.
-- **Connection Resilience**: Frontend detects SSE connection drops and displays a warning. Heartbeat pings (5s interval) keep connections alive through proxies.
-- **Agent Hot-Reload**: Agent configuration changes (model, prompt, sub-agents) are picked up automatically without restarting the application.
-- **Styling**: DaisyUI Catppuccin Mocha theme.
 
 ## Security Considerations
 
@@ -437,8 +305,8 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 
 - **Network Exposure**: The gateway binds to `127.0.0.1` by default. Do not change this to `0.0.0.0` unless you understand the risks — all API endpoints are unauthenticated and would be accessible to anyone on the network.
 - **CORS**: The allowed origin is configurable via `features.cors_origin` in `config.json` (or the `CORS_ORIGIN` environment variable). Default is `http://localhost:3002`.
-- **Virtual Filesystem**: Agents are sandboxed to `workspace://` (read-only) and `artifacts://` (read-write). Prompt file paths are validated to prevent path traversal outside the prompts directory.
-- **Docker Isolation**: In Docker mode, backends run on an internal network unreachable from the host. Only the gateway port is published.
+- **Virtual Filesystem**: Agents are 'sandboxed' to `workspace://` (read-only) and `artifacts://` (read-write). Prompt file paths are validated to prevent path traversal outside the prompts directory.
+- **Docker Isolation**: In Docker mode, backends run on an internal network. Only the gateway port is published.
 - **Volume Isolation**: Agent file operations are scoped to the Docker volume. Agents cannot access the host filesystem directly.
 - **API Keys**: Stored in `.env` inside the volume. Protect your volume accordingly.
 - **Prompt Injection**: As with any LLM-based system, prompt injection is a potential risk. Agent prompts, file contents, and MCP tool results are all part of the context window. Be cautious when:
@@ -457,45 +325,15 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 | :--- | :--- |
 | **Runtime** | Bun (TypeScript) |
 | **Gateway** | Elysia.js |
-| **LLM Backend** | Python FastAPI + LiteLLM |
-| **Frontend** | SolidJS + Vite + Tailwind CSS + DaisyUI |
+| **LLM Backend** | Python FastAPI + LiteLLM (for universal translation layer between models) |
+| **Frontend** | SolidJS + Tailwind CSS + DaisyUI |
 | **Database** | SQLite (Drizzle ORM) |
-| **Protocols** | MCP, AG-UI, SSE |
-
-## Roadmap
-
-### Completed
-
-- [x] **HIL Frontend** — ApprovalPanel with approve/reject per tool.
-- [x] **Full CRUD API** — Agents, Models, MCPs, Prompts.
-- [x] **Agent Builder** — Master-detail UI at `/`.
-- [x] **File Tree** — Hierarchical explorer with search and download.
-- [x] **Token Guards** — Frontend pre-check + backend budget check.
-- [x] **Stream Resilience** — Duplicate runId protection, heartbeat keep-alive, connection drop detection with user-facing warnings.
-- [x] **Error Handling** — LLM errors, sub-agent failures, and upload errors surfaced in chat UI with dismissible banners.
-- [x] **Agent Hot-Reload** — Agent model and configuration changes applied without restarting the application.
-- [x] **UX Improvements** — Stop button, typing indicator, sidebar search, auto-clearing attachments, file size limits (10 MB), inline sub-agent output.
-- [x] **Docker Deployment** — `docker-compose` for production-ready setup.
-
-### v0.2 — Upcoming
-
-- [ ] **CLI Tool** — Terminal-based alternative to the web UI.
-- [ ] **Tool Isolation** — Enhanced sandboxing and stricter VFS boundaries.
-
-### v0.3 — Planned
-
-- [ ] **Full VFS Isolation** — Chroot-like sandboxing with zero escape vectors.
-- [ ] **Versioned Config** — Migration system for configuration upgrades.
-- [ ] **History Compaction** — Automatic summarization of long conversations.
-
-### v0.4 — Considered
-
-- [ ] **Memory Management** — Summarization and RAG-based long-term recall.
-- [ ] **Shared History** — Better context passing between parent and sub-agents.
+| **Protocols** | MCP, AG-UI (only inspired by it for frontend-gateway), SSE |
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions are more than welcome!
+I worked a lot on this project and for now it is perfect for my use cases , and I need some feedbacks to further improve the app.
 
 ## License
 
