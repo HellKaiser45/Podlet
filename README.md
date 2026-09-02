@@ -14,22 +14,24 @@ Podlet is a **free and open source** modular AI chat app.
 
 ### Docker (Recommended)
 
-Docker version offer a better safety because it runs in a separate and contained environment , only the .podlet folder is shared with the agents.
-In case of a prompt injection in a web page or something similar in a skill or mcp, this will add an additional layer of protection .
+The Docker version offers better safety because it runs in a separate, contained environment — only the `.podlet` folder is shared with the agents.
+In case of a prompt injection in a web page or something similar in a skill or MCP, this adds an additional layer of protection.
 
-There are some downsides that will make your agents more limited because of the limitations of the container and what is installed on it.
-So some mcps won't work , your system env variables won't be forwarded to the container, websearches will be more flagged as robot and likely trigger captchat and thus be rejected.
+There are some downsides: your agents are more limited because of the constraints of the container and what is installed on it.
+Some MCPs won't work, your system environment variables won't be forwarded to the container, and web searches will more often be flagged as bot traffic and trigger captchas, and thus be rejected.
 
-But for most usecases it is sufficient while offering a superior safety layer.
+But for most use cases it is sufficient while offering a superior safety layer.
 
 <span style="color:blue">Prerequisites: Docker and Docker Compose</span>
+
+> **Note for Windows users:** the data mount uses `$HOME/.podlet`. Launch Docker Compose from a shell where `HOME` is defined (e.g., Git Bash), or the data directory will not mount correctly.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh -o /tmp/p.sh; bash /tmp/p.sh
 # Choose option 1 (Docker)
 ```
 
-This command will setup the container and the .podlet directory in your home folder. You'll need to check the config and add your models and api keys in .envs.
+This command will set up the containers and the `.podlet` directory in your home folder. You'll need to check the config and add your models and API keys in `.env`.
 
 After that you can go in the Podlet/ folder and run:
 
@@ -45,17 +47,17 @@ docker compose build
 
 Then edit the config, models and .env in the .podlet directory in your home folder.
 
-Once the container is running it will be accessible from your network over:
+Once the containers are running, the app is accessible on your network at:
 
 <http://localhost:3000> on the same machine or <http://ip-address:3000>
 
 ### Native Installation
 
-This should be use only if you need the agent to use your machine system or perform commands directly on your host system. Or if you want an agent to use commands, mcps or skills that require a specific package installed on the system and thus won't work on the docker version.
+This should be used only if you need the agent to work directly on your host system, or if you want an agent to use commands, MCPs, or skills that require a specific package installed on the system and thus won't work in the Docker version.
 
-While there are several mecanisms to prevent prompt injections attacks, be aware that the risk of data leaks is much higher than the docker version.
+While there are several mechanisms to prevent prompt-injection attacks, be aware that the risk of data leaks is much higher than with the Docker version.
 
-Prerequisites: Bun 1.0+ and Python 3.12+ and Python venv
+Prerequisites: Bun 1.0+, Python 3.12+, and Python venv
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
@@ -76,23 +78,23 @@ After that you'll have to check the config, add your models and api keys inside 
 
 ## Docker Configuration
 
-All configuration lives in a single `config.json` file inside the Docker volume.
+All configuration lives in your `~/.podlet/` folder, which is bind-mounted into the containers at `/root/.podlet`.
 
-### Volume Management
+### Data Management
 
-All data persists in a Docker named volume:
+All data (config, models, agents, history, workspaces) persists in `~/.podlet/` on your host — it is a bind mount, not a Docker volume:
 
 ```bash
-# Inspect volume
-docker volume inspect podlet_podlet-data
+# Back up everything
+cp -r ~/.podlet ~/.podlet.backup
 
 # Reset (WARNING: deletes all data)
-docker compose down -v
+rm -rf ~/.podlet && docker compose up -d   # re-seeds from the image on next start
 ```
 
 ### MCP Servers
 
-The gateway container includes `npx` (Node.js 20) and `uvx` (Python + uv) for running MCP tool servers in the gateway container directly. Configure MCP servers by editing `mcp.json` in the volume (`.podlet/` folder ).
+The gateway container includes `npx` (Node.js 20) and `uvx` (Python + uv) for running MCP tool servers directly in the container. Configure MCP servers by editing `~/.podlet/mcp.json`.
 
 ### Updating
 
@@ -140,8 +142,7 @@ Podlet uses a dedicated configuration directory located at `~/.podlet/` .
 
 ### config.json Schema
 
-⚠️ Ports config must not be changed if you use the Docker version.
-If you want to change the exposed port (change port 3000 to something else) you must edit the `compose.yml` file.
+⚠️ Under Docker, keep `server.port` at `3000` and `server.pythonPort` at `8000` — the port mapping in `compose.yml` (`3000:3000`) and the agent-core image depend on them. `server.webPort` has no effect in Docker: the gateway itself serves the built frontend. To expose a different port, edit the mapping in `compose.yml`.
 
 ```json
 {
@@ -149,43 +150,27 @@ If you want to change the exposed port (change port 3000 to something else) you 
     "port": 3000,
     "host": "127.0.0.1",
     "pythonPort": 8000,
-    "webPort": 3002,
-    "exposedPort": 3002
+    "webPort": 3002
   },
   "database": {
     "path": "podlet.db"
   },
-  "logging": {
-    "level": "info"
-  },
   "features": {
-    "safemode": true,
-    "max_concurrent_agents": 5,
-    "cors_origin": "http://localhost:3002"
-  },
-  "docker": {
-    "enabled": false,
-    "llmServiceHost": "localhost",
-    "staticFrontend": false
+    "safemode": false
   }
 }
 ```
 
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `server.port` | number | `3000` | Gateway API port. |
-| `server.host` | string | `"127.0.0.1"` | Bind address (`0.0.0.0` in Docker). |
-| `server.pythonPort` | number | `8000` | Port for the internal Python LLM backend. |
-| `server.webPort` | number | `3002` | Port for the SolidJS web frontend. |
-| `server.exposedPort` | number | same as `port` | Port visible to user. |
-| `database.path` | string | `"podlet.db"` | SQLite database file path. |
-| `logging.level` | string | `"info"` | Log verbosity (`debug`, `info`, `warn`, `error`). |
-| `features.safemode` | boolean | `true` | Enable Human-in-the-Loop (HIL) approval for destructive tools. |
-| `features.max_concurrent_agents` | number | `5` | Maximum number of simultaneous agent runs. |
-| `features.cors_origin` | string | `"http://localhost:3002"` | Allowed CORS origin for the frontend. |
-| `docker.enabled` | boolean | `false` | Docker mode flag. |
-| `docker.llmServiceHost` | string | `"localhost"` | Python service hostname. |
-| `docker.staticFrontend` | boolean | `false` | Gateway serves frontend. |
+| `server.port` | number | `3000` | Gateway API port. Native: adjustable. Docker: keep at `3000`. |
+| `server.host` | string | `"127.0.0.1"` | Bind address. Docker forces `0.0.0.0` automatically — the value is ignored in containers. |
+| `server.pythonPort` | number | `8000` | Port for the internal Python LLM backend. Native: adjustable. Docker: keep at `8000`. |
+| `server.webPort` | number | `3002` | Web UI port (native only — Vite dev server). No effect in Docker. Also derives the allowed CORS origin. |
+| `database.path` | string | `"podlet.db"` | SQLite database file name, stored in `~/.podlet`. |
+| `features.safemode` | boolean | `false` | Enable Human-in-the-Loop (HIL) approval for destructive tools. |
+
+> Any other keys you may find in older `config.json` files (`logging`, `cors_origin`, `exposedPort`, `docker`, `max_concurrent_agents`) are read by nothing and are safe to delete.
 
 ## Agents
 
@@ -195,7 +180,7 @@ Agents are the core units of Podlet. They are defined in `~/.podlet/agents/*.jso
 
 ```json
 {
-  "agentId": "string",(basically the name of the agent, it does not allow spaces and other special characters or maj)
+  "agentId": "string" — the name of the agent. Allowed: letters (any case), digits, `-` and `_`; no spaces or other special characters; 1–58 characters.
   "agentDescription": "string",
   "model": "string (key from models.json)",
   "system_prompt": "string (filename in prompts/)",
@@ -211,7 +196,7 @@ Agents have access to three categories of tools:
 
 1. **Core Tools**: Built-in capabilities like `read_file` and `execute_shell`.
 2. **MCP Tools**: Tools provided by MCP servers defined in `mcp.json` (e.g., `ddg-search_search`).
-3. **Sub-agent Tools**: Other agents can be called as tools (sub-agents in the json agants).
+3. **Sub-agent Tools**: Other agents can be called as tools (sub-agents listed in the agent JSON).
 
 ## Skills
 
@@ -227,10 +212,10 @@ Behavioral instructions in the system prompt encourage the model to proactively 
 
 ## Human-in-the-Loop (HIL)
 
-To prevent unauthorized actions, Podlet includes a **safemode** .
+To prevent unauthorized actions, Podlet includes a **safemode** feature.
 
-This feature is still experimental and honestly was very difficult to implement seemlessly in the multi-agents environment.
-It may have still some issues with this and also cause a higher token consumption.
+This feature is still experimental and was honestly very difficult to implement seamlessly in the multi-agent environment.
+It may still have some issues and can also cause higher token consumption.
 
 When `safemode` is enabled, the agent loop is monitored for destructive tool calls.
 
@@ -248,10 +233,10 @@ Agents operate in a virtual file system:
 - `skills://` : Access to skill-specific resources (restricted to agents possessing the skill).
 
 Real paths are mapped to `~/.podlet/workspace/{runId}/` and `~/.podlet/artifacts/{runId}/`.
-This is intended to limit the risk of prompt injections while still maintaining alot of freedom for the agent.
-This is not a guaranty working and the agent can sometimes escape this virtual environment.
+This is intended to limit the risk of prompt injections while still maintaining a lot of freedom for the agent.
+This is not a guaranteed containment — the agent can sometimes escape this virtual environment.
 
-It was also a challenge to provide this while maintaining enough liberty to the agent. It can also be interferring with some mcps and skills that specifically reference the real filesystem which can confuse the agent.
+It was also a challenge to provide this while maintaining enough liberty for the agent. It can also interfere with some MCPs and skills that specifically reference the real filesystem, which can confuse the agent.
 
 This can be annoying but it is a design choice to have an overall more guided behavior and also provide a kind of safety net against prompt injections.
 
@@ -287,7 +272,7 @@ Base URL: `http://localhost:3000/api` | Interactive Docs: `/api/openapi`
 
 ## Frontend
 
-The web UI is accessible at `http://localhost:3002` by default (3000 for the docker version) but can be configured in `~/.podlet/config.json`.
+Native: the web UI runs on `server.webPort` — `http://localhost:3002` by default, configurable in `~/.podlet/config.json`. Docker: the gateway serves the built frontend itself on the port published in `compose.yml` (`http://localhost:3000` by default).
 
 - **Thread Management**: Sidebar for organizing conversations.
 - **Streaming UI**: Real-time responses with typing indicators.
@@ -304,10 +289,10 @@ The web UI is accessible at `http://localhost:3002` by default (3000 for the doc
 Podlet is designed as a **local, personal development tool**. It intentionally does not include authentication or authorization layers. Keep the following in mind:
 
 - **Network Exposure**: The gateway binds to `127.0.0.1` by default. Do not change this to `0.0.0.0` unless you understand the risks — all API endpoints are unauthenticated and would be accessible to anyone on the network.
-- **CORS**: The allowed origin is configurable via `features.cors_origin` in `config.json` (or the `CORS_ORIGIN` environment variable). Default is `http://localhost:3002`.
+- **CORS**: The allowed origin is derived from `server.webPort` (`http://localhost:<webPort>`); it is not separately configurable.
 - **Virtual Filesystem**: Agents are 'sandboxed' to `workspace://` (read-only) and `artifacts://` (read-write). Prompt file paths are validated to prevent path traversal outside the prompts directory.
 - **Docker Isolation**: In Docker mode, backends run on an internal network. Only the gateway port is published.
-- **Volume Isolation**: Agent file operations are scoped to the Docker volume. Agents cannot access the host filesystem directly.
+- **Volume Isolation**: Agent file operations are scoped to the `~/.podlet` folder mounted into the container. Agents cannot access the rest of the host filesystem directly.
 - **API Keys**: Stored in `.env` inside the volume. Protect your volume accordingly.
 - **Prompt Injection**: As with any LLM-based system, prompt injection is a potential risk. Agent prompts, file contents, and MCP tool results are all part of the context window. Be cautious when:
   - Agents read untrusted files or user inputs that may contain injection payloads.
@@ -333,7 +318,7 @@ Podlet is designed as a **local, personal development tool**. It intentionally d
 ## Contributing
 
 Contributions are more than welcome!
-I worked a lot on this project and for now it is perfect for my use cases , and I need some feedbacks to further improve the app.
+I worked a lot on this project — for now it is perfect for my use cases, and I need feedback to further improve the app.
 
 ## License
 
