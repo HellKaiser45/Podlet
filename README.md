@@ -34,9 +34,26 @@ Podlet runs as a **server on your machine**. It exposes a web UI and an HTTP API
 
 ## Quick Start
 
-*Two ways to run Podlet — pick one.*
+*Two ways to run Podlet — pick one, or let the installer ask you.*
 
-### From Source
+### One-liner install (Linux / macOS)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh)
+```
+
+Pass a directory as the first argument to install elsewhere (default: `~/podlet`).
+
+### One-liner install (Windows PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 -OutFile install.ps1; .\install.ps1"
+```
+
+**What the installer does** — clones (or updates) the repo into `~/podlet`, asks **Docker or native**, checks the prerequisites for your choice (Docker + Compose, or Bun + Python 3.12+), runs the setup step for that mode, and prints the exact start command. Everything it configures lives in `~/.podlet` — the repo is just code.
+
+<details>
+<summary>Manual install — from source</summary>
 
 **Prerequisites:** [Bun](https://bun.sh) and Python 3.12.
 
@@ -44,13 +61,16 @@ Podlet runs as a **server on your machine**. It exposes a web UI and an HTTP API
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
-bun run init      # interactive setup
+bun run init      # one-time setup (seeds ~/.podlet)
 bun run start     # starts all three services
 ```
 
 Open **http://localhost:3002**.
 
-### With Docker
+</details>
+
+<details>
+<summary>Manual install — Docker</summary>
 
 **Prerequisites:** Docker and Docker Compose.
 
@@ -61,6 +81,26 @@ docker compose up -d
 ```
 
 Open **http://localhost:3000**.
+
+</details>
+
+### Docker or source — which one?
+
+| | 🐳 Docker | ⚡ From source |
+|---|---|---|
+| **Prerequisites** | Docker only | Bun + Python 3.12 |
+| **First setup** | one image build — everything baked in | `bun install` + Python venv |
+| **Footprint** | heavier image (Chromium, Playwright and Node are baked in for MCP browser tools) | lighter — three local processes |
+| **Ports** | fixed internals; one published port via `compose.yml` | all three adjustable in `config.json` |
+| **Frontend** | prebuilt static bundle served by the gateway | Vite dev server with hot reload |
+| **Applying code changes** | rebuild the image | save and reload |
+| **Best for** | always-on deployments, servers, clean machines | development, customization, hacking on Podlet |
+
+> [!TIP]
+> Both modes share the same data folder (`~/.podlet`). You can switch between them at any time — agents, prompts, history and keys carry over untouched.
+
+> [!NOTE]
+> Native mode runs the UI as a Vite dev server — it is the developer experience, not a hardened production server. For unattended, always-on use, prefer Docker.
 
 ---
 

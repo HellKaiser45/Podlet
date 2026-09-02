@@ -40,42 +40,75 @@ Podlet est un système d'orchestration d'agents IA : une passerelle TypeScript r
 
 ## Démarrage Rapide
 
-### Docker (Recommandé)
+*Deux façons de lancer Podlet — l'installateur vous demande laquelle.*
+
+### Installation en une ligne (Linux / macOS)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh)
+```
+
+Passez un répertoire en premier argument pour installer ailleurs (défaut : `~/podlet`).
+
+### Installation en une ligne (Windows PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.ps1 -OutFile install.ps1; .\install.ps1"
+```
+
+**Ce que fait l'installateur** — il clone (ou met à jour) le dépôt dans `~/podlet`, demande **Docker ou natif**, vérifie les prérequis correspondants (Docker + Compose, ou Bun + Python 3.12+), lance l'étape de configuration du mode choisi et affiche la commande de démarrage exacte. Tout ce qu'il configure vit dans `~/.podlet` — le dépôt ne contient que le code.
+
+<details>
+<summary>Installation manuelle — Docker</summary>
 
 **Prérequis :** Docker et Docker Compose
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HellKaiser45/Podlet/main/install.sh | bash
-# Choisissez l'option 1 (Docker)
-```
-
-Ou manuellement :
-
-```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
-docker compose run --rm gateway bun run init --docker
 docker compose up -d
 ```
 
-Visitez `http://localhost:3002`
+Ouvrez **http://localhost:3000**.
 
-> [!NOTE]
-> Utilisateurs Windows : le montage de données utilise `$HOME/.podlet`, qui n'existe pas dans un shell Windows standard. Définissez la variable d'environnement `HOME` ou utilisez WSL.
+> Utilisateurs Windows : le montage de données utilise `$HOME/.podlet`, souvent absent d'un shell Windows standard. Définissez `HOME` (ou utilisez WSL) avant `docker compose up`.
 
-### Installation Native
+</details>
 
-**Prérequis :** [Bun](https://bun.sh) 1.0+ et Python 3.12+
+<details>
+<summary>Installation manuelle — natif</summary>
+
+**Prérequis :** [Bun](https://bun.sh) et Python 3.12+
 
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
-cd agent_core_py && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && cd ..
+bun run init      # configuration initiale (initialise ~/.podlet)
 bun run start
 ```
 
-L'interface est disponible sur `http://localhost:3002`.
+L'interface est disponible sur **http://localhost:3002**.
+
+</details>
+
+### Docker ou natif — lequel choisir ?
+
+| | 🐳 Docker | ⚡ Depuis les sources |
+|---|---|---|
+| **Prérequis** | Docker seul | Bun + Python 3.12 |
+| **Première installation** | une seule build d'image — tout est intégré | `bun install` + venv Python |
+| **Empreinte** | image plus lourde (Chromium, Playwright et Node intégrés pour les outils MCP navigateur) | plus léger — trois processus locaux |
+| **Ports** | internes fixes ; un port publié via `compose.yml` | les trois ajustables dans `config.json` |
+| **Frontend** | bundle statique pré-construit, servi par la gateway | serveur de développement Vite avec rechargement à chaud |
+| **Appliquer des modifications** | reconstruire l'image | enregistrer et recharger |
+| **Idéal pour** | déploiements permanents, serveurs, machines vierges | développement, personnalisation, bidouille |
+
+> [!TIP]
+> Les deux modes partagent le même dossier de données (`~/.podlet`) : passer de l'un à l'autre à tout moment — agents, prompts, historique et clés sont conservés.
+
+> [!NOTE]
+> En natif, l'interface tourne via le serveur de développement Vite — c'est l'expérience développeur, pas un serveur de production endurci. Pour un usage permanent et sans surveillance, préférez Docker.
 
 ---
 
@@ -85,7 +118,7 @@ Les conteneurs montent `~/.podlet` (bind mount, pas de volume nommé) — mêmes
 
 ### Modifier le port exposé
 
-Éditez le mappage de ports dans `compose.yml` (par ex. `3002:3000` → `8080:3000`), puis :
+Éditez le mappage de ports dans `compose.yml` (par ex. `3000:3000` → `8080:3000`), puis :
 
 ```bash
 docker compose up -d
