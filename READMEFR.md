@@ -1,48 +1,20 @@
-<img src="podlet-logo.png" width="200" />
+<p align="center">
+  <img src="podlet-logo.png" width="180" alt="Podlet logo" />
+</p>
 
 # Podlet
 
-**Système d'Orchestration Modulaire d'Agents IA**
+*Système modulaire d'orchestration d'agents IA — une application auto-hébergée pour orchestrer des agents spécialisés.*
 
-[![Licence](https://img.shields.io/badge/Licence-MIT-yellow.svg)](LICENSE)
-[![Bun](https://img.shields.io/badge/Runtime-Bun-black)](https://bun.sh)
-[![Docker](https://img.shields.io/badge/Docker-Pr%C3%AAt-blue)](https://www.docker.com/)
-[![PR Bienvenues](https://img.shields.io/badge/PRs-bienvenues-green.svg)](CONTRIBUTING.md)
-
-## Qu'est-ce que Podlet ?
-
-Podlet est un système d'orchestration d'agents IA : une passerelle TypeScript rapide, un backend LLM Python flexible et une interface SolidJS réactive. Les agents spécialisés collaborent, utilisent des outils externes via MCP (Model Context Protocol) et opèrent dans un système de fichiers virtuel sécurisé.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ---
 
-### Sommaire
+## Démarrage rapide
 
-- [Qu'est-ce que Podlet ?](#quest-ce-que-podlet)
-- [Démarrage Rapide](#démarrage-rapide)
-- [Configuration Docker](#configuration-docker)
-- [Architecture](#architecture)
-- [Configuration](#configuration) — [`config.json`](#configjson) · [`.env`](#env) · [`models.json`](#modelsjson) · [`mcp.json`](#mcpjson)
-- [Agents](#agents)
-- [Système d'Outils](#système-doutils)
-- [Skills](#skills)
-- [Human-in-the-Loop](#human-in-the-loop-hil)
-- [Système de Fichiers Virtuel](#système-de-fichiers-virtuel-vfs)
-- [Agent Builder](#agent-builder)
-- [Tiroir de Fichiers](#tiroir-de-fichiers)
-- [Référence API](#référence-api)
-- [Frontend](#frontend)
-- [Sécurité](#sécurité)
-- [Stack Technique](#stack-technique)
-- [Contribution](#contribution)
-- [Licence](#licence)
+*Deux façons de lancer Podlet — choisissez-en une.*
 
----
-
-## Démarrage Rapide
-
-*Deux façons de lancer Podlet — choisissez la vôtre.*
-
-### 🐳 Docker
+### Docker (recommandé)
 
 **Prérequis :** Docker et Docker Compose.
 
@@ -52,7 +24,13 @@ cd Podlet
 docker compose up -d
 ```
 
-Ouvrez **http://localhost:3000**.
+Ajoutez au moins une clé de fournisseur dans `~/.podlet/.env` (créé au premier lancement — voir [Configuration](#configuration)) :
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Ouvrez **<http://localhost:3000>**. *(Docker sert le frontend précompilé via le serveur gateway/Elysia — un seul processus, un seul port.)*
 
 ### ⚡ Depuis les sources
 
@@ -62,82 +40,43 @@ Ouvrez **http://localhost:3000**.
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
-bun run init      # configuration initiale (initialise ~/.podlet)
+bun run init      # installation initiale (une seule fois, initialise ~/.podlet)
 bun run start     # démarre les trois services
 ```
 
-L'interface est disponible sur **http://localhost:3002**.
+Ajoutez au moins une clé de fournisseur dans `~/.podlet/.env` (voir [Configuration](#configuration)) :
 
-### Docker ou natif — lequel choisir ?
-
-| | 🐳 Docker | ⚡ Depuis les sources |
-|---|---|---|
-| **Prérequis** | Docker seul | Bun + Python 3.12 |
-| **Première installation** | une seule build d'image — tout est intégré | `bun install` + venv Python |
-| **Empreinte** | image plus lourde (Chromium, Playwright et Node intégrés pour les outils MCP navigateur) | plus léger — trois processus locaux |
-| **Ports** | internes fixes ; un port publié via `compose.yml` | les trois ajustables dans `config.json` |
-| **Frontend** | bundle statique pré-construit, servi par la gateway | serveur de développement Vite avec rechargement à chaud |
-| **Appliquer des modifications** | reconstruire l'image | enregistrer et recharger |
-| **Idéal pour** | déploiements permanents, serveurs, machines vierges | développement, personnalisation, bidouille |
-
-> [!TIP]
-> Les deux modes partagent le même dossier de données (`~/.podlet`) : passer de l'un à l'autre à tout moment — agents, prompts, historique et clés sont conservés.
-
-> [!NOTE]
-> En natif, l'interface tourne via le serveur de développement Vite — c'est l'expérience développeur, pas un serveur de production endurci. Pour un usage permanent et sans surveillance, préférez Docker.
-
----
-
-## Configuration Docker
-
-Les conteneurs montent `~/.podlet` (bind mount, pas de volume nommé) — mêmes données que le mode natif.
-
-> [!NOTE]
-> **Utilisateurs Windows :** le montage utilise `$HOME/.podlet`, souvent absent d'un shell Windows standard. Définissez `HOME` (`set HOME=%USERPROFILE%`) ou utilisez WSL avant `docker compose up`.
-
-### Modifier le port exposé
-
-Éditez le mappage de ports dans `compose.yml` (par ex. `3000:3000` → `8080:3000`), puis :
-
-```bash
-docker compose up -d
+```
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### Gestion des données
-
-```bash
-# Sauvegarde
-cp -r ~/.podlet ~/podlet-backup
-
-# Réinitialisation complète
-rm -rf ~/.podlet && docker compose up -d
-```
-
-> [!CAUTION]
-> La réinitialisation supprime définitivement toutes vos données : agents personnalisés, historique, clés API, fichiers de travail.
-
----
-
-## Architecture
-
-Trois composants, un seul point d'entrée :
-
-| Composant | Technologie | Rôle |
-|---|---|---|
-| **Gateway** | Bun + Elysia (TypeScript) | API, agents, outils, sandbox, interface web |
-| **Backend LLM** | Python + FastAPI | Appels aux modèles, streaming |
-| **Frontend** | SolidJS + Vite | Interface utilisateur |
-
-Le flux d'une requête : navigateur → Gateway (port 3000) → backend Python (port 8000) → fournisseur LLM.
+Ouvrez **<http://localhost:3002>**. *(Le mode source exécute un serveur de développement Vite séparé pour le frontend, d'où le port différent du 3000 de la gateway.)*
 
 ---
 
 ## Configuration
 
-Toute la configuration vit dans `~/.podlet/` — code dans le dépôt, données dans votre répertoire personnel.
+**Comment la configuration arrive là :** le dépôt fournit un dossier `.podlet/` germe (« seed ») — `config.json`, `models.json`, `mcp.json`, les agents, les skills, et un modèle `.env` vide par défaut. Au premier `bun run init` (source) ou au premier `docker compose up -d` (Docker), ce dossier germe est copié vers `~/.podlet/`, qui devient le dossier de configuration actif que l'application lit ensuite.
+
+Vous pouvez le personnaliser avant ou après cette première copie :
+
+- **Avant :** modifiez le dossier germe `.podlet/` du dépôt avant votre premier init/build — vos modifications seront reprises dans la copie.
+- **Après :** modifiez directement `~/.podlet/` à tout moment — c'est ce que l'application en cours d'exécution lit.
+
+**Où sont mes données ?** Les données de Podlet se trouvent dans `~/.podlet` sur la machine hôte, montées (bind mount) dans le conteneur à `/root/.podlet`. Rien n'est stocké à l'intérieur des conteneurs — la configuration, les agents, l'historique des conversations et les fichiers générés survivent tous aux reconstructions et réinitialisations.
+
+> [!NOTE]
+> **Utilisateurs Windows :** le montage utilise `$HOME/.podlet`. Dans un shell `cmd` Windows classique, `HOME` n'est souvent pas définie — définissez-la (`set HOME=%USERPROFILE%`) avant d'exécuter `docker compose up`. Dans PowerShell, utilisez plutôt `$env:HOME = $env:USERPROFILE`.
+
+> [!CAUTION]
+> L'emplacement du dossier `.podlet` dépend de votre système d'exploitation. Linux : `/home/<user>/.podlet`. macOS : `/Users/<user>/.podlet`. Windows : `C:\Users\<user>\.podlet`.
+> Le dossier est caché et doit être affiché dans votre explorateur de fichiers.
+> Pour le port Docker, ne changez pas les ports dans `config.json` — changez plutôt le port exposé directement dans `compose.yml`.
+
+### `config.json`
 
 <details>
-<summary>Exemple complet de <code>~/.podlet/config.json</code></summary>
+<summary>Configuration par défaut complète (cliquer pour développer)</summary>
 
 ```json
 {
@@ -147,186 +86,143 @@ Toute la configuration vit dans `~/.podlet/` — code dans le dépôt, données 
     "pythonPort": 8000,
     "webPort": 3002
   },
-  "database": { "path": "podlet.db" },
-  "features": { "safemode": false }
+  "database": {
+    "path": "podlet.db"
+  },
+  "features": {
+    "safemode": false
+  }
 }
 ```
 
 </details>
 
-| Champ | Type | Défaut | Effet |
+| Champ | Type | Valeur par défaut | Effet |
 |---|---|---|---|
-| `server.port` | nombre | `3000` | Port de l'API Gateway. Natif : ajustable. Docker : conserver 3000. |
-| `server.host` | chaîne | `"127.0.0.1"` | Adresse d'écoute. Docker force `0.0.0.0` — valeur ignorée en conteneur. |
-| `server.pythonPort` | nombre | `8000` | Port du backend Python (natif). Docker : conserver 8000. |
-| `server.webPort` | nombre | `3002` | Port de l'interface web (natif uniquement). Aucun effet en Docker — le port publié provient du mappage compose. Définit aussi l'origine CORS. |
+| `server.port` | nombre | `3000` | Port de l'API de la gateway. |
+| `server.host` | chaîne | `"127.0.0.1"` | Adresse d'écoute. Docker force `0.0.0.0`. |
+| `server.pythonPort` | nombre | `8000` | Port du backend Python (mode natif). |
+| `server.webPort` | nombre | `3002` | Port de l'interface web (natif uniquement). Détermine aussi l'origine CORS. |
 | `database.path` | chaîne | `"podlet.db"` | Nom du fichier SQLite dans `~/.podlet`. |
-| `features.safemode` | booléen | `false` | Approbation Human-in-the-Loop pour les appels d'outils destructifs. |
+| `features.safemode` | booléen | `false` | Validation humaine (Human-in-the-Loop) pour les appels d'outils destructeurs. |
 
-### Règles de ports par mode
+**Règles de port selon le mode :**
 
-| Champ | Natif | Docker |
+| Paramètre | Natif | Docker |
 |---|---|---|
-| `server.port` | 🟢 Ajustable | 🔴 Conserver 3000 |
-| `server.pythonPort` | 🟢 Ajustable | 🔴 Conserver 8000 |
-| `server.webPort` | 🟢 Ajustable | ⚪ Aucun effet |
-| `server.host` | 🔵 Spécial | 🔵 Forcé à `0.0.0.0` |
+| `server.port` | 🟢 modifiable | 🔴 laisser à `3000` — le mapping du compose cible cette valeur |
+| `server.pythonPort` | 🟢 modifiable | 🔴 laisser à `8000` — agent-core écoute sur ce port |
+| `server.webPort` | 🟢 modifiable | ⚪ sans effet — la gateway sert le bundle précompilé |
+| `server.host` | 🟢 modifiable | 🔵 forcé à `0.0.0.0` (géré automatiquement, non configurable par l'utilisateur) |
 
-```diff
-# Ports — natif : libres ; Docker : fixes
-- server.port : 3000        (Docker : ne pas modifier)
-- server.pythonPort : 8000  (Docker : ne pas modifier)
-+ server.webPort : 3002     (natif uniquement, Vite)
-+ server.host : 127.0.0.1   (Docker force 0.0.0.0)
-```
+### Changer le port exposé
+
+Le fichier compose mappe la gateway en `3000:3000`. Pour exposer Podlet sur un autre port de la machine hôte, modifiez cette ligne dans `compose.yml` (par exemple `8080:3000`) puis relancez `docker compose up -d`.
 
 > [!WARNING]
-> Sous Docker, conservez `server.port` à 3000 et `server.pythonPort` à 8000 — le mappage de ports compose et l'image agent-core en dépendent. `server.webPort` n'a aucun effet en Docker.
+> Sous Docker, modifier `server.port` ou `server.pythonPort` dans `config.json` casse l'application silencieusement — le mapping du compose et l'image agent-core dépendent de ces valeurs fixes. Utilisez plutôt la ligne de port du compose pour changer le port exposé.
 
-> [!TIP]
-> D'anciennes clés (`logging`, `cors_origin`, `exposedPort`, `max_concurrent_agents`, bloc `docker`) ne sont lues par aucun code. Présentes dans de vieux fichiers, elles sont sans danger et peuvent être supprimées.
-
-> [!IMPORTANT]
-> Identifiants d'agents : lettres (majuscules autorisées), chiffres, `-` et `_`, de 1 à 58 caractères. Les espaces sont invalides — ils casseraient les noms d'outils `agent_<id>`.
+---
 
 ### `.env`
 
-Clés API des fournisseurs (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) — lues par le backend Python à chaque appel.
+Les clés d'API se trouvent dans `~/.podlet/.env`, une par fournisseur (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). Le core Python lit ce fichier à chaque requête — les modifications s'appliquent sans redémarrage.
 
 ### `models.json`
 
-Définitions des modèles (`fast`, `smart`) : fournisseur, nom de modèle et `api_key_name` référençant `.env`.
-
-### `mcp.json`
-
-Serveurs MCP externes (recherche DuckDuckGo, Context7, …).
-
----
-
-## Agents
-
-Les agents sont définis dans `~/.podlet/agents/*.json` :
-
-<details>
-<summary>Schéma complet d'un agent</summary>
+Fait correspondre les identifiants de modèles utilisés par les agents aux modèles réels des fournisseurs :
 
 ```json
 {
-  "agentId": "string",
-  "agentDescription": "string",
-  "model": "fast",
-  "system_prompt": "prompt.md",
-  "mcps": [],
-  "skills": [],
-  "subAgents": ["agentId1", "agentId2"]
+  "fast": { "provider": "openrouter", "model": "zai/glm-4.6", "api_key_name": "OPENROUTER_API_KEY" },
+  "smart": { "provider": "anthropic", "model": "claude-sonnet-4-20250514", "api_key_name": "ANTHROPIC_API_KEY" }
+}
+```
+
+Le champ `api_key_name` n'est nécessaire que si le fournisseur est « petit, récent ou de niche » et n'est pas officiellement pris en charge par [litellm](https://docs.litellm.ai/docs/providers), ou si vous souhaitez un `api_key_name` personnalisé.
+
+Les fichiers d'agents référencent ces entrées par leur clé (`"model": "smart"`) — voir [Configuration des agents](#configuration-des-agents) ci-dessous.
+
+### `mcp.json`
+
+Déclare les serveurs MCP ; l'ensemble par défaut inclut `context7` (recherche documentaire) et `ddg-search` (recherche web).
+
+---
+
+## Configuration des agents
+
+Les agents sont des fichiers JSON dans `~/.podlet/agents/`, chargés au démarrage de la gateway.
+
+<details>
+<summary>Exemple de fichier d'agent (cliquer pour développer)</summary>
+
+```json
+{
+  "agentId": "backend-architect",
+  "agentDescription": "Conçoit les contrats d'API, les modèles de données et les limites des services.",
+  "model": "smart",
+  "system_prompt": "backend_architect.md",
+  "mcps": ["context7"],
+  "skills": ["api-and-interface-design"],
+  "subAgents": ["frontend-architect", "database-designer"]
 }
 ```
 
 </details>
 
-Agents pré-configurés : orchestrateur principal, architectes backend/frontend, codeurs, vérificateurs, documentation, création d'assets. Chaque agent peut déléguer via `subAgents`.
+> [!IMPORTANT]
+> **Les identifiants d'agent sont des identifiants, pas des libellés.** Autorisés : lettres (majuscules ou minuscules), chiffres, `-` et `_`, de 1 à 58 caractères. L'identifiant devient le nom de l'outil de délégation (`agent_<id>`), donc les espaces cassent les appels d'outils — et les identifiants invalides sont rejetés au chargement, avec un avertissement dans les logs de la gateway.
 
----
-
-## Système d'Outils
-
-Trois catégories :
-
-1. **Outils principaux** — fichiers, commandes, recherche web
-2. **Outils MCP** — serveurs externes (Context7, DuckDuckGo…)
-3. **Outils Sous-Agents** — autres agents appelables via le préfixe `agent_` (ex. `agent_Coder`)
+- **`model`** — une clé de `models.json` (par ex. `"smart"`, `"fast"`), pas un identifiant brut de modèle fournisseur.
+- **`system_prompt`** — le nom de fichier d'un fichier Markdown (un prompt par fichier) dans `~/.podlet/prompts/`. `"backend_architect.md"` correspond à `~/.podlet/prompts/backend_architect.md`.
+- **`mcps`** — suit la même convention que Claude Code : une liste de noms de serveurs déclarés dans `mcp.json` auxquels cet agent doit avoir accès. Laisser vide pour aucun accès MCP.
+- **`subAgents`** — une liste d'`agentId` auxquels cet agent peut déléguer. Chaque identifiant devient un outil `agent_<id>` appelable depuis le contexte de cet agent, selon la même règle de nommage que les agents de premier niveau.
 
 ---
 
 ## Skills
 
-Les skills sont des modules d'instructions expertes dans `~/.podlet/skills/`. Chaque agent déclare les skills auxquels il a accès ; ils sont injectés dans son contexte à la demande.
+Les skills sont des ensembles d'instructions situés dans `~/.podlet/skills/`, initialisés au premier lancement à partir de l'ensemble fourni dans `.podlet/skills/`. Un observateur de fichiers (file watcher) les recharge automatiquement — aucun redémarrage nécessaire.
+
+Pour plus d'informations sur les skills, consultez [la documentation Claude](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices).
 
 ---
 
-## Human-in-the-Loop (HIL)
+## Supervision humaine (Human-in-the-Loop)
 
-Avec `features.safemode: true`, chaque appel d'outil destructif (commande shell, écriture de fichier) requiert votre approbation dans l'interface avant exécution.
+Avec `features.safemode: true`, les appels d'outils destructeurs (suppression de fichiers, commandes shell) sont mis en pause et demandent une approbation dans l'interface avant leur exécution. Approuvez ou rejetez chaque demande ; rien ne s'exécute sans votre accord.
 
 ---
 
-## Système de Fichiers Virtuel (VFS)
+## Système de fichiers virtuel
 
-| Schéma | Accès |
+Chaque exécution de conversation dispose de deux dossiers isolés (sandboxés) sous `~/.podlet/` :
+
+| Dossier | Objectif | Accès |
+|---|---|---|
+| `workspace/<runId>/` | Vos fichiers importés | Lecture seule pour les agents |
+| `artifacts/<runId>/` | Fichiers générés par les agents | Accessible en écriture, sous-dossiers par agent |
+
+Les agents ne peuvent rien modifier en dehors de ces racines ou du dossier des skills.
+
+---
+
+## Pile technique
+
+| Couche | Technologies |
 |---|---|
-| `workspace://` | Fichiers de travail (téléversements) |
-| `artifacts://` | Sorties des agents |
-| `skills://` | Modules de skills (liste d'autorisation par agent) |
+| Gateway | Bun, Elysia, Drizzle ORM + SQLite, MCP TypeScript SDK, Zod |
+| Agent Core | Python 3.12, FastAPI, litellm, uvicorn, python-dotenv |
+| Frontend | SolidJS, Vite |
 
 ---
 
-## Agent Builder
+## Contribuer
 
-L'interface permet de créer et modifier des agents : identifiant, description, modèle, prompt système, MCPs, skills et sous-agents. L'identifiant est modifiable directement depuis l'en-tête de l'agent.
-
----
-
-## Tiroir de Fichiers
-
-Parcours de l'arborescence des fichiers de travail et visualisation des sorties des agents, directement depuis l'interface.
-
----
-
-## Référence API
-
-API REST complète sur le port Gateway (3000) : agents, fichiers, modèles, prompts, skills, MCPs.
-
-**`POST /chat/stream`** — diffuse une conversation d'agent. Les objets message portent `role` et `content` ; le flux émet des événements `keepalive` et `ping` pour maintenir la connexion ouverte.
-
-<details>
-<summary>Exemple de corps de requête (cliquer pour déplier)</summary>
-
-```json
-{
-  "agentId": "main-orchestrator",
-  "messages": [
-    { "role": "user", "content": "Bonjour" }
-  ]
-}
-```
-
-</details>
-
----
-
-## Frontend
-
-SolidJS + Vite. En natif : serveur de développement Vite sur `server.webPort`. En Docker : bundle statique intégré à l'image, servi par la Gateway sur le port publié.
-
----
-
-## Sécurité
-
-- **CORS** : l'origine autorisée est dérivée de `server.webPort` (`http://localhost:<webPort>`) — non configurable séparément.
-- **Sandbox** : exécution des commandes dans un environnement restreint.
-- **HIL** : approbation des actions destructives (voir ci-dessus).
-
----
-
-## Stack Technique
-
-| Couche | Technologie |
-|---|---|
-| Runtime | Bun |
-| API | Elysia |
-| Base de données | SQLite + Drizzle |
-| Backend LLM | FastAPI + LiteLLM |
-| Frontend | SolidJS + Vite |
-| Conteneurs | Docker Compose |
-
----
-
-## Contribution
-
-Les contributions sont bienvenues — ouvrez une issue ou une pull request.
+Respectez le style de commit : `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`. Consultez [AGENTS.md](AGENTS.md) pour les notes d'architecture.
 
 ---
 
 ## Licence
 
-[MIT](LICENSE)
+MIT — voir [LICENSE](LICENSE).
