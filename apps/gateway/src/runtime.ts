@@ -9,6 +9,7 @@ import MCPManager from "./tools/mcp/client";
 import { AppConfig } from '@podlet/types';
 import { join } from "path";
 import { watch, FSWatcher } from 'fs'
+import { readdir, rm } from 'node:fs/promises'
 import createfilesystem from "./system/files";
 import { AgentToolManager } from "./tools/agents-as-tools";
 import { AgentEventStream } from "./stream_handler";
@@ -51,6 +52,8 @@ export default class AppContainer {
   async init() {
     await createfilesystem(this.initConfig.podletDir)
 
+    await this.collectOrphanedRunDirs()
+
     await Promise.all([
       this.mcpManager.init(),
       this.skillManager.LoadSkillsDefs(),
@@ -60,6 +63,39 @@ export default class AppContainer {
     // PromptsManager has no async init needed -- it reads files on-demand
 
     await this.startwatchers()
+  }
+
+  /**
+   * Startup garbage collection: delete workspace/artifacts subdirectories
+   * whose runId has no matching run_history row (e.g. chats that were opened
+   * but never received a first message). Only UUID-shaped directory names are
+   * considered, so any non-run folder placed there deliberately is never touched.
+   */
+  private async collectOrphanedRunDirs(): Promise<void> {
+    const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    for (const schemeDir of ['workspace', 'artifacts']) {
+      const dirPath = join(this.initConfig.podletDir, schemeDir);
+
+      let entries;
+      try {
+        entries = await readdir(dirPath, { withFileTypes: true });
+      } catch {
+        continue; // scheme dir doesn't exist yet -- nothing to collect
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
+        if (await this.historyManager.exists(entry.name)) continue;
+
+        console.log(`[GC] Removing orphaned ${schemeDir}/ directory with no chat history: ${entry.name}`);
+        try {
+          await rm(join(dirPath, entry.name), { recursive: true, force: true });
+        } catch (err) {
+          console.error(`[GC] Failed to remove orphaned ${schemeDir}/${entry.name}:`, err);
+        }
+      }
+    }
   }
 
   private debounce(key: string, fn: () => Promise<void>, ms: number): () => void {

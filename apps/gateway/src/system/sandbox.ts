@@ -125,7 +125,9 @@ export class VirtualFileSystem {
 
   async listFiles(scheme: VirtualScheme): Promise<FileResponse[]> {
     const realPath = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-    await mkdir(realPath, { recursive: true });
+    // No mkdir here: this is a read path. A missing directory just means "empty"
+    // (the readdir catch below returns []). Creating it would leave orphaned
+    // folders on disk for chats where the user never sends a message.
 
     let files: string[];
     try {
@@ -378,7 +380,7 @@ export class VirtualFileSystem {
 
   private async getSchemeTree(scheme: VirtualScheme): Promise<string> {
     const realPath = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-    await mkdir(realPath, { recursive: true });
+    // No mkdir here either: a missing directory renders as "(empty)".
 
     let files: string[];
     try {

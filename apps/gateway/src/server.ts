@@ -104,8 +104,16 @@ export function chatRoutes(container: AppContainer) {
       const exists = await container.historyManager.exists(params.runid);
       if (exists) await container.historyManager.deleteByRunId(params.runid)
 
+      // Purge any suspended HIL frames for this run so they don't linger in SQLite
+      await container.frameCRUD.deleteByRunId(params.runid)
+
       const virtualManager = new VirtualFileSystem(container.initConfig.podletDir, params.runid)
-      virtualManager.deleteFolder(params.runid)
+      try {
+        await virtualManager.deleteFolder(params.runid)
+      } catch (err) {
+        // A missing folder must not fail the delete (e.g. chats that never wrote files)
+        console.error(`Failed to delete folders for runId ${params.runid}:`, err)
+      }
     })
 }
 
