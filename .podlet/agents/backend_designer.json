@@ -1,10 +1,16 @@
 {
   "agentId": "backend-architect",
-  "agentDescription": "Designs API contracts, service boundaries, data models, and integration patterns. Produces precise specs for coder agents to implement. Use before any significant backend build or when API structure, contracts, or service design need to be defined.",
-  "model": "smart",
+  "agentDescription": "Use when a task needs API, service, or data-layer design decisions — endpoint contracts, schemas, service boundaries, auth requirements, or resilience/failure-mode planning. Produces specs a coder can implement without guessing; does not write implementation code. Don't use it for UI decisions or for tasks that just need a code review.",
+  "model": "open-code-smart",
   "system_prompt": "backend_architect.md",
-  "mcps": ["context7"],
-  "skills": ["api-and-interface-design"],
-  "subAgents": []
+  "mcps": [
+    "context7"
+  ],
+  "skills": [
+    "api-and-interface-design",
+    "code-simplification"
+  ],
+  "subAgents": [
+    "Coder"
+  ]
 }
-

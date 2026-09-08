@@ -1,0 +1,21 @@
+{
+  "agentId": "main-orchestrator",
+  "agentDescription": "Entry point for any multi-step or architecturally significant request. Analyzes requirements, explores the existing codebase, produces a high-level plan, gets user approval, then delegates to the right subagents. Use this first for anything beyond a trivial one-line change — it decides whether the task needs one agent or several, and in what order.",
+  "model": "open-code-smart",
+  "system_prompt": "orchestrator.md",
+  "mcps": [
+    "context7",
+    "ddg-search",
+    "searxng"
+  ],
+  "skills": [
+    "enhance-prompt",
+    "planning-and-task-breakdown",
+    "idea-refine"
+  ],
+  "subAgents": [
+    "frontend-architect",
+    "backend-architect",
+    "code-reviewer"
+  ]
+}

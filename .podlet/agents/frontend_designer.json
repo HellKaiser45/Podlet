@@ -1,10 +1,22 @@
 {
   "agentId": "frontend-architect",
-  "agentDescription": "Frontend design expert — invoke for any website, static site, landing page, dashboard, UI architecture, component system, or UX flow request. DO NOT invoke for bug fixes, type errors, single-file edits, or tasks with an existing spec — route those to a coder agent.",
-  "model": "smart",
+  "agentDescription": "Use when a task needs UI/UX structure — component architecture, design systems, layout specs, UX flows, or accessibility/responsive requirements. Produces the same kind of implementation-ready spec as the backend architect, but for the client side. Don't use it for backend contracts or data modeling.",
+  "model": "open-code-smart",
   "system_prompt": "frontend_architect.md",
-  "mcps": [],
-  "skills": ["enhance-prompt", "idea-refine", "theme-factory", "taste-design"],
-  "subAgents": ["asset_creator"]
+  "mcps": [
+    "context7",
+    "searxng",
+    "ddg-search"
+  ],
+  "skills": [
+    "frontend-design-review",
+    "frontend-skill",
+    "theme-factory",
+    "frontend-ui-engineering",
+    "taste-design",
+    "frontend-dev"
+  ],
+  "subAgents": [
+    "Coder"
+  ]
 }
-
