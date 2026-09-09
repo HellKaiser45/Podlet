@@ -4,6 +4,12 @@ import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
 
+/** Fallback output-token cap when a model config does not set max_tokens.
+ *  Provider/litellm defaults are often very low (e.g. 4096), which silently
+ *  truncates long responses (finish_reason="length"). Override per model via
+ *  "max_tokens" in models.json for models with a lower hard limit. */
+const DEFAULT_MAX_TOKENS = 32768;
+
 export class AgentClient {
   private readonly streamEndpoint = '/chat/stream'
   private readonly appContainer: AppContainer
@@ -38,7 +44,7 @@ export class AgentClient {
       configpath: this.appContainer.initConfig.podletDir,
       api_key_name: model.api_key_name,
       temperature: model.temperature ?? undefined,
-      max_tokens: model.max_tokens ?? undefined,
+      max_tokens: model.max_tokens ?? DEFAULT_MAX_TOKENS,
       base_url: model.base_url ?? undefined,
       system_prompt: systemPrompt + `\n\n` + updatedSystemPrompt,
       history: history as AgentRequest['history'],

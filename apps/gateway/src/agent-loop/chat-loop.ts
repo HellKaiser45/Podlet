@@ -134,10 +134,30 @@ export class AgentChatLoop {
             const message = accu.buildMessage();
             this.context.frame.history.push(message);
             break;
-          case "content_filter":
-          case "length":
-            this.transitionTo(AgentState.FAILED)
-            return
+          case "length": {
+            const errMsg = `Response truncated: the model hit its max output token limit (finish_reason="length"). Increase max_tokens for this model in models.json.`;
+            console.error(`[chat-loop] ${errMsg}`);
+            this.context.error = errMsg;
+            this.emit({
+              AgentId: this.agentDef.agentId,
+              type: EventType.RUN_ERROR,
+              message: errMsg,
+            });
+            this.transitionTo(AgentState.FAILED);
+            return;
+          }
+          case "content_filter": {
+            const errMsg = `Response blocked by the provider's content filter (finish_reason="content_filter").`;
+            console.error(`[chat-loop] ${errMsg}`);
+            this.context.error = errMsg;
+            this.emit({
+              AgentId: this.agentDef.agentId,
+              type: EventType.RUN_ERROR,
+              message: errMsg,
+            });
+            this.transitionTo(AgentState.FAILED);
+            return;
+          }
         }
       }
 
