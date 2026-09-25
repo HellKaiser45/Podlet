@@ -187,7 +187,7 @@ export function callstreamandhandleevents(message: string) {
         threadId: 'frontend-dev-1',
         agentId: agent,
         attachmentIds: uploadData.map((file) => file.id)
-      }, { fetch: { signal: abortController.signal } }).then(({ data, error }: { data: any; error: any }) => {
+      }, { fetch: { signal: abortController.signal } }).then(({ data, error }) => {
         if (error) {
           console.error('Chat post failed', error);
           setState({ status: 'idle' });
@@ -328,7 +328,7 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
     threadId: 'frontend-dev-1',
     agentId: agent,
     decision: decisions,
-  }, { fetch: { signal: abortController.signal } }).then(({ data, error }: { data: any; error: any }) => {
+  }, { fetch: { signal: abortController.signal } }).then(({ data, error }) => {
     if (error) {
       console.error('Resume failed', error);
       setState({ status: 'idle' });
