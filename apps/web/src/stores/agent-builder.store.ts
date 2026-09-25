@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import { api } from "../utils/api/share.api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,16 +31,12 @@ export interface SkillInfo {
   description: string;
 }
 
-// ─── Base URL ─────────────────────────────────────────────────────────────────
-
-const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:3000") + "/api";
-
-// ─── API Functions ────────────────────────────────────────────────────────────
+// ─── API Functions ───────────────────────────────────────────────────────────
 
 async function fetchAgents(): Promise<Record<string, Agent>> {
   try {
-    const res = await fetch(BASE + "/agents/all");
-    return await res.json();
+    const { data } = await api.agents.all.get();
+    return (data ?? {}) as Record<string, Agent>;
   } catch {
     return {};
   }
@@ -47,8 +44,8 @@ async function fetchAgents(): Promise<Record<string, Agent>> {
 
 async function fetchModels(): Promise<Record<string, ModelConfig>> {
   try {
-    const res = await fetch(BASE + "/models/all");
-    return await res.json();
+    const { data } = await api.models.all.get();
+    return (data ?? {}) as Record<string, ModelConfig>;
   } catch {
     return {};
   }
@@ -56,8 +53,8 @@ async function fetchModels(): Promise<Record<string, ModelConfig>> {
 
 async function fetchMcps(): Promise<Record<string, MCPServerConfig>> {
   try {
-    const res = await fetch(BASE + "/mcps/all");
-    return await res.json();
+    const { data } = await api.mcps.all.get();
+    return (data ?? {}) as Record<string, MCPServerConfig>;
   } catch {
     return {};
   }
@@ -65,10 +62,8 @@ async function fetchMcps(): Promise<Record<string, MCPServerConfig>> {
 
 async function fetchSkills(): Promise<SkillInfo[]> {
   try {
-    const res = await fetch(BASE + "/skills/all");
-    const data = await res.json();
-    // Backend may return a Record<string, SkillInfo> or SkillInfo[]
-    if (Array.isArray(data)) return data;
+    const { data } = await api.skills.all.get();
+    if (Array.isArray(data)) return data as SkillInfo[];
     if (data && typeof data === "object") return Object.values(data) as SkillInfo[];
     return [];
   } catch {
@@ -78,8 +73,8 @@ async function fetchSkills(): Promise<SkillInfo[]> {
 
 async function fetchPrompts(): Promise<string[]> {
   try {
-    const res = await fetch(BASE + "/prompts/all");
-    return await res.json();
+    const { data } = await api.prompts.all.get();
+    return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
@@ -87,12 +82,8 @@ async function fetchPrompts(): Promise<string[]> {
 
 async function _createAgentApi(agent: Agent): Promise<boolean> {
   try {
-    const res = await fetch(BASE + "/agents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(agent),
-    });
-    return res.ok;
+    const { error } = await api.agents.post(agent);
+    return !error;
   } catch {
     return false;
   }
@@ -103,12 +94,8 @@ async function updateAgent(
   patch: Partial<Agent>
 ): Promise<boolean> {
   try {
-    const res = await fetch(BASE + "/agents/" + encodeURIComponent(agentId), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    return res.ok;
+    const { error } = await api.agents({ agentId }).put(patch);
+    return !error;
   } catch {
     return false;
   }
@@ -116,10 +103,8 @@ async function updateAgent(
 
 async function deleteAgent(agentId: string): Promise<boolean> {
   try {
-    const res = await fetch(BASE + "/agents/" + encodeURIComponent(agentId), {
-      method: "DELETE",
-    });
-    return res.ok;
+    const { error } = await api.agents({ agentId }).delete();
+    return !error;
   } catch {
     return false;
   }
@@ -127,9 +112,8 @@ async function deleteAgent(agentId: string): Promise<boolean> {
 
 async function fetchPromptContent(name: string): Promise<string> {
   try {
-    const res = await fetch(BASE + "/prompts/" + encodeURIComponent(name));
-    const json = await res.json();
-    return json.content;
+    const { data } = await api.prompts({ name }).get();
+    return data?.content ?? "";
   } catch {
     return "";
   }
@@ -137,12 +121,8 @@ async function fetchPromptContent(name: string): Promise<string> {
 
 async function createPromptApi(name: string, content: string): Promise<boolean> {
   try {
-    const res = await fetch(BASE + "/prompts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, content }),
-    });
-    return res.ok;
+    const { error } = await api.prompts.post({ name, content });
+    return !error;
   } catch {
     return false;
   }
@@ -150,12 +130,8 @@ async function createPromptApi(name: string, content: string): Promise<boolean> 
 
 async function updatePromptApi(name: string, content: string): Promise<boolean> {
   try {
-    const res = await fetch(BASE + "/prompts/" + encodeURIComponent(name), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
-    return res.ok;
+    const { error } = await api.prompts({ name }).put({ content });
+    return !error;
   } catch {
     return false;
   }
@@ -163,10 +139,8 @@ async function updatePromptApi(name: string, content: string): Promise<boolean> 
 
 async function deletePromptApi(name: string): Promise<boolean> {
   try {
-    const res = await fetch(BASE + "/prompts/" + encodeURIComponent(name), {
-      method: "DELETE",
-    });
-    return res.ok;
+    const { error } = await api.prompts({ name }).delete();
+    return !error;
   } catch {
     return false;
   }
