@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from core import AgentConstructor, AgentRequest, LLMConfig
 from openai.types.chat import ChatCompletionFunctionTool
@@ -30,7 +30,7 @@ class WebChatRequest(BaseModel):
     temperature: Optional[float] = None
     base_url: Optional[str] = None
     api_key_name: Optional[str] = None
-    max_tokens: Optional[int] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high", "none"]] = None
     response_format: Optional[dict] = None
 
 
@@ -47,7 +47,7 @@ async def chat_stream(req: WebChatRequest):
         configpath=req.configpath,
         temperature=req.temperature,
         api_key_name=req.api_key_name,
-        max_tokens=req.max_tokens,
+        reasoning_effort=req.reasoning_effort,
         base_url=req.base_url,
     )
 
@@ -67,11 +67,16 @@ async def chat_stream(req: WebChatRequest):
             # We pass the history from the request to run_streaming
             async for chunk in agent.run_streaming(req.history):
                 # LiteLLM's chunk is a Pydantic model; model_dump_json is standard
-                yield f"data: {chunk.model_dump_json()}\n\n"
+                event_data = json.dumps({"type": "chunk", "chunk": chunk.model_dump()})
+                yield f"data: {event_data}\n\n"
 
         except Exception as e:
             # Send the error as a JSON-formatted SSE event so the frontend can parse it
-            error_data = json.dumps({"error": str(e), "type": type(e).__name__})
+            error_data = json.dumps({
+                "type": "error",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            })
             yield f"data: {error_data}\n\n"
         finally:
             # Standard SSE signal to notify the client the stream is finished

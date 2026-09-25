@@ -1,6 +1,13 @@
 import { Elysia, t } from 'elysia';
 import AppContainer from '../runtime';
 
+const ReasoningEffortSchema = t.Optional(t.Union([
+  t.Literal('low'),
+  t.Literal('medium'),
+  t.Literal('high'),
+  t.Literal('none'),
+]));
+
 export default function modelsRoutes(container: AppContainer) {
   return new Elysia({ prefix: '/models' })
     // GET all models
@@ -34,7 +41,7 @@ export default function modelsRoutes(container: AppContainer) {
           model: t.String(),
           api_key_name: t.Optional(t.String()),
           temperature: t.Optional(t.Number()),
-          max_tokens: t.Optional(t.Number()),
+          reasoning_effort: ReasoningEffortSchema,
           base_url: t.Optional(t.String()),
         })
       })
@@ -55,7 +62,7 @@ export default function modelsRoutes(container: AppContainer) {
         model: t.Optional(t.String()),
         api_key_name: t.Optional(t.String()),
         temperature: t.Optional(t.Number()),
-        max_tokens: t.Optional(t.Number()),
+        reasoning_effort: ReasoningEffortSchema,
         base_url: t.Optional(t.String()),
       })
     })
