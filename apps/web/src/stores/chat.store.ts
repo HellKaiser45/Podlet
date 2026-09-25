@@ -199,8 +199,6 @@ export function callstreamandhandleevents(message: string) {
 
         addMessage({ role: 'assistant', content: '' })
 
-        let mainAgentId: string | null = null;
-
         (async () => {
           try {
             for await (const chunk of data) {
@@ -212,12 +210,7 @@ export function callstreamandhandleevents(message: string) {
                   if (!chunk.data.delta) break;
                   const chunkAgentId = chunk.data.AgentId;
 
-                  if (mainAgentId === null) {
-                    mainAgentId = chunkAgentId;
-                    console.log('[chat.store] main agent detected:', mainAgentId);
-                  }
-
-                  if (chunkAgentId === mainAgentId) {
+                  if (chunkAgentId === agent) {
                     updateLastMessageContent(chunk.data.delta);
                   } else {
                     setState(produce(conv => {
@@ -238,14 +231,10 @@ export function callstreamandhandleevents(message: string) {
                   break;
                 }
                 case "TOOL_CALL_START": {
-                  const currentTools = state.tools;
-                  const pendingCount = currentTools.filter(t => t.result === undefined).length;
-                  setState('tools', tools => {
-                    if (pendingCount === 0) {
-                      return [{ id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
-                    }
-                    return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
-                  });
+                  setState('tools', tools => [
+                    ...tools,
+                    { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }
+                  ]);
                   break;
                 }
                 case "TOOL_CALL_ARGS":
@@ -267,9 +256,15 @@ export function callstreamandhandleevents(message: string) {
                   }
                   break;
                 }
+                case "RUN_STARTED":
+                  setState({ status: 'running', error: undefined });
+                  break;
+                case "RUN_FINISHED":
+                  setState({ status: 'idle' });
+                  break;
                 case "RUN_ERROR": {
                   const errMsg = chunk.data.message || 'An error occurred during the agent run';
-                  setState({ error: errMsg });
+                  setState({ status: 'idle', error: errMsg });
                   break;
                 }
                 default:
@@ -283,8 +278,9 @@ export function callstreamandhandleevents(message: string) {
               console.error('[chat.store] Stream error:', err);
               if (isStreamAlive(myVersion)) {
                 setState({
-                  error: 'Connection to agent lost. The agent may still be processing your request.',
-                });
+                    status: 'idle',
+                    error: 'Connection to agent lost. The agent may still be processing your request.',
+                  });
               }
             }
           } finally {
@@ -352,16 +348,12 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
               break;
             }
             case "TOOL_CALL_START": {
-              const currentTools = state.tools;
-              const pendingCount = currentTools.filter(t => t.result === undefined).length;
-              setState('tools', tools => {
-                if (pendingCount === 0) {
-                  return [{ id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+                  setState('tools', tools => [
+                    ...tools,
+                    { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }
+                  ]);
+                  break;
                 }
-                return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
-              });
-              break;
-            }
             case "TOOL_CALL_ARGS":
               setState('tools', t => t.id === chunk.data.toolCallId, 'args', (a) => (a ?? '') + (chunk.data.delta ?? ''));
               break;
@@ -379,11 +371,17 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
               }
               break;
             }
-            case "RUN_ERROR": {
-              const errMsg = chunk.data.message || 'An error occurred during the agent run';
-              setState({ error: errMsg });
-              break;
-            }
+            case "RUN_STARTED":
+                  setState({ status: 'running', error: undefined });
+                  break;
+                case "RUN_FINISHED":
+                  setState({ status: 'idle' });
+                  break;
+                case "RUN_ERROR": {
+                  const errMsg = chunk.data.message || 'An error occurred during the agent run';
+                  setState({ status: 'idle', error: errMsg });
+                  break;
+                }
             default:
               break;
           }
@@ -395,8 +393,9 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
           console.error('[chat.store] Resume stream error:', err);
           if (isStreamAlive(myVersion)) {
             setState({
-              error: 'Connection to agent lost. The agent may still be processing your request.',
-            });
+                    status: 'idle',
+                    error: 'Connection to agent lost. The agent may still be processing your request.',
+                  });
           }
         }
       } finally {
