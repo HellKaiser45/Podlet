@@ -74,6 +74,8 @@ export interface MCPInstance {
 }
 
 //===========================================================
+export type ReasoningEffort = "low" | "medium" | "high" | "none";
+
 /** Payload to send to the chat endpoint */
 export interface AgentRequest {
   // Core Model Info
@@ -88,7 +90,7 @@ export interface AgentRequest {
 
   // Model Parameters
   temperature?: number;
-  max_tokens?: number;
+  reasoning_effort?: ReasoningEffort;
   base_url?: string;
 
   // Advanced
@@ -152,13 +154,18 @@ export interface Skillneeded extends SkillFrontmatter {
   location: string;
 }
 
+/** SSE events emitted by the Python LLM service. */
+export type AgentStreamEvent =
+  | { type: "chunk"; chunk: LiteLLMStreamedChunk }
+  | { type: "error"; error: string; error_type?: string };
+
 /** ~/.podelet/models.json */
 export interface ModelConfig {
   provider: string;
   model: string;
   api_key_name?: string;
   temperature?: number;
-  max_tokens?: number;
+  reasoning_effort?: ReasoningEffort;
   base_url?: string;
 }
 
