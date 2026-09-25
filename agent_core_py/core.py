@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Optional, Any
+from typing import AsyncGenerator, Literal, Optional, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel
 import litellm
@@ -30,7 +30,7 @@ class LLMConfig(BaseModel):
     base_url: Optional[str] = None
     temperature: Optional[float] = None
     api_key_name: Optional[str] = None
-    max_tokens: Optional[int] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high", "none"]] = None
 
 
 class AgentRequest(BaseModel):
@@ -161,8 +161,8 @@ class AgentConstructor:
             completion_kwargs["api_base"] = cfg.base_url
         if cfg.temperature is not None:
             completion_kwargs["temperature"] = cfg.temperature
-        if cfg.max_tokens is not None:
-            completion_kwargs["max_tokens"] = cfg.max_tokens
+        if cfg.reasoning_effort is not None:
+            completion_kwargs["reasoning_effort"] = cfg.reasoning_effort
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
 
