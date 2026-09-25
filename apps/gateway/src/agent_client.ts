@@ -1,14 +1,8 @@
 import type { ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageToolCall } from 'openai/resources/chat/completions';
-import type { AgentRequest, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
+import type { AgentRequest, AgentStreamEvent, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
 import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
-
-/** Fallback output-token cap when a model config does not set max_tokens.
- *  Provider/litellm defaults are often very low (e.g. 4096), which silently
- *  truncates long responses (finish_reason="length"). Override per model via
- *  "max_tokens" in models.json for models with a lower hard limit. */
-const DEFAULT_MAX_TOKENS = 32768;
 
 export class AgentClient {
   private readonly streamEndpoint = '/chat/stream'
@@ -44,7 +38,7 @@ export class AgentClient {
       configpath: this.appContainer.initConfig.podletDir,
       api_key_name: model.api_key_name,
       temperature: model.temperature ?? undefined,
-      max_tokens: model.max_tokens ?? DEFAULT_MAX_TOKENS,
+      reasoning_effort: model.reasoning_effort ?? undefined,
       base_url: model.base_url ?? undefined,
       system_prompt: systemPrompt + `\n\n` + updatedSystemPrompt,
       history: history as AgentRequest['history'],
@@ -56,7 +50,7 @@ export class AgentClient {
   async *chatStream(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
     const request = await this.buildRequest(agentId, history, vfileSystem)
     const baseUrl = this.appContainer.initConfig.llmApiUrl.replace(/\/$/, '');
-    const url = `${baseUrl}${this.streamEndpoint}`;
+    const url = baseUrl + this.streamEndpoint;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -78,8 +72,9 @@ export class AgentClient {
 
     const decoder = new TextDecoder();
     let buffer = "";
+    let doneReceived = false;
 
-    for await (const chunk of response.body) {
+    stream: for await (const chunk of response.body) {
       buffer += decoder.decode(chunk);
       const parts = buffer.split('\n\n');
       buffer = parts.pop() ?? "";
@@ -89,11 +84,50 @@ export class AgentClient {
         if (!trimmed.startsWith('data: ')) continue;
 
         const data = trimmed.slice(6);
-        if (data === '[DONE]') return;
+        if (data === '[DONE]') {
+          doneReceived = true;
+          break stream;
+        }
 
-        const jsonEvent: LiteLLMStreamedChunk = JSON.parse(data);
-        yield jsonEvent;
+        let event: unknown;
+        try {
+          event = JSON.parse(data);
+        } catch (error) {
+          throw new Error(
+            `Agent Server Error: invalid SSE JSON: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+
+        if (!event || typeof event !== "object") {
+          throw new Error("Agent Server Error: invalid SSE event");
+        }
+
+        const typedEvent = event as Partial<AgentStreamEvent>;
+        if (typedEvent.type === "error") {
+          const errorMessage = "error" in event && typeof event.error === "string"
+            ? event.error
+            : "Unknown LLM service error";
+          const errorType = "error_type" in event && typeof event.error_type === "string"
+            ? ` [${event.error_type}]`
+            : "";
+          throw new Error(errorMessage + errorType);
+        }
+
+        if (typedEvent.type !== "chunk" || !("chunk" in event) || !event.chunk) {
+          throw new Error("Agent Server Error: invalid SSE event type");
+        }
+
+        const chunkEvent = event.chunk as LiteLLMStreamedChunk;
+        if (!Array.isArray(chunkEvent.choices)) {
+          throw new Error("Agent Server Error: invalid LLM chunk");
+        }
+
+        yield chunkEvent;
       }
+    }
+
+    if (!doneReceived) {
+      throw new Error("Agent Server Error: stream ended before [DONE]");
     }
   }
 }
