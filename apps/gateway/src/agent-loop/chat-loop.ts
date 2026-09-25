@@ -114,18 +114,11 @@ export class AgentChatLoop {
     try {
       const accu = new MessageAccumulator();
       let terminalFinishReason: "stop" | "tool_calls" | null = null;
-      let terminalMessage: LiteLLMMessage | null = null;
 
       const messageId = randomUUIDv7()
 
       for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs)) {
         if (!choice.choices || choice.choices.length === 0) continue;
-
-        if (terminalFinishReason !== null) {
-          throw new Error(
-            `LLM stream produced data after terminal finish_reason="${terminalFinishReason}". The response was rejected.`
-          );
-        }
 
         const chunk = choice.choices[0];
         this.emit({
@@ -144,8 +137,10 @@ export class AgentChatLoop {
 
           case "tool_calls":
           case "stop":
+            // Some streaming implementations can emit additional chunks after
+            // the first non-null finish_reason. Keep consuming the stream and
+            // validate the final non-null finish_reason when the stream closes.
             terminalFinishReason = chunk.finish_reason;
-            terminalMessage = accu.buildMessage();
             break;
 
           case "length": {
@@ -189,12 +184,13 @@ export class AgentChatLoop {
         }
       }
 
-      if (terminalFinishReason === null || terminalMessage === null) {
+      if (terminalFinishReason === null) {
         throw new Error(
           "LLM stream ended without a valid terminal finish_reason. The response was rejected."
         );
       }
 
+      const terminalMessage = accu.buildMessage();
       this.context.frame.history.push(terminalMessage);
 
       if (terminalFinishReason === "tool_calls") {
