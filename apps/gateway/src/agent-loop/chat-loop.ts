@@ -113,29 +113,43 @@ export class AgentChatLoop {
   private async callLLM() {
     try {
       const accu = new MessageAccumulator();
+      let terminalFinishReason: "stop" | "tool_calls" | null = null;
+      let terminalMessage: LiteLLMMessage | null = null;
 
       const messageId = randomUUIDv7()
 
       for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs)) {
         if (!choice.choices || choice.choices.length === 0) continue;
+
+        if (terminalFinishReason !== null) {
+          throw new Error(
+            `LLM stream produced data after terminal finish_reason="${terminalFinishReason}". The response was rejected.`
+          );
+        }
+
+        const chunk = choice.choices[0];
         this.emit({
           AgentId: this.agentDef.agentId,
           type: EventType.TEXT_MESSAGE_CHUNK,
           message_id: messageId,
           role: 'assistant',
-          delta: choice.choices[0].delta.content ?? undefined
+          delta: chunk.delta.content ?? undefined
         })
-        accu.constructMessage(choice.choices[0].delta)
-        switch (choice.choices[0].finish_reason) {
+        accu.constructMessage(chunk.delta)
+
+        switch (chunk.finish_reason) {
           case null:
+          case undefined:
             continue;
+
           case "tool_calls":
           case "stop":
-            const message = accu.buildMessage();
-            this.context.frame.history.push(message);
+            terminalFinishReason = chunk.finish_reason;
+            terminalMessage = accu.buildMessage();
             break;
+
           case "length": {
-            const errMsg = `Response truncated: the model hit its max output token limit (finish_reason="length"). Increase max_tokens for this model in models.json.`;
+            const errMsg = `Response truncated: the model/provider ended generation with finish_reason="length". The incomplete response was rejected.`;
             console.error(`[chat-loop] ${errMsg}`);
             this.context.error = errMsg;
             this.emit({
@@ -146,8 +160,22 @@ export class AgentChatLoop {
             this.transitionTo(AgentState.FAILED);
             return;
           }
+
           case "content_filter": {
             const errMsg = `Response blocked by the provider's content filter (finish_reason="content_filter").`;
+            console.error(`[chat-loop] ${errMsg}`);
+            this.context.error = errMsg;
+            this.emit({
+              AgentId: this.agentDef.agentId,
+              type: EventType.RUN_ERROR,
+              message: errMsg,
+            });
+            this.transitionTo(AgentState.FAILED);
+            return;
+          }
+
+          default: {
+            const errMsg = `LLM response was not completed successfully (finish_reason="${String(chunk.finish_reason)}"). The response was rejected.`;
             console.error(`[chat-loop] ${errMsg}`);
             this.context.error = errMsg;
             this.emit({
@@ -161,8 +189,15 @@ export class AgentChatLoop {
         }
       }
 
-      const lastMessage = this.context.frame.history[this.context.frame.history.length - 1] satisfies LiteLLMMessage;
-      if (lastMessage.role === "assistant" && lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+      if (terminalFinishReason === null || terminalMessage === null) {
+        throw new Error(
+          "LLM stream ended without a valid terminal finish_reason. The response was rejected."
+        );
+      }
+
+      this.context.frame.history.push(terminalMessage);
+
+      if (terminalFinishReason === "tool_calls") {
         this.transitionTo(AgentState.EXECUTING_TOOLS)
       } else {
         this.transitionTo(AgentState.COMPLETED)
@@ -180,7 +215,6 @@ export class AgentChatLoop {
       return;
     }
   }
-
   private async executeTools(calls: ChatCompletionMessageToolCall[]) {
     const tool_promises: Promise<LiteLLMMessage>[] = [];
 
