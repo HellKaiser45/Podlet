@@ -117,8 +117,13 @@ export default function ActivityPanel() {
 
   const toolCount = () => state.tools.length;
   const subagentIds = () => Object.keys(state.subagents);
-  const hasActivity = () => toolCount() > 0 || subagentIds().length > 0;
+  const hasActivity = () => state.status === 'running' || toolCount() > 0 || subagentIds().length > 0;
   const pendingTools = () => state.tools.filter(t => t.result === undefined).length;
+  const activityStatus = () => {
+    if (state.status !== 'running') return 'Idle';
+    if (pendingTools() > 0) return 'Running tools';
+    return 'Thinking / waiting for model';
+  };
 
   return (
     <Show when={hasActivity()}>
@@ -135,6 +140,7 @@ export default function ActivityPanel() {
             <span class="loading loading-spinner loading-xs text-base-content/60" />
           </Show>
           <span class="font-medium text-base-content/80">Agent Activity</span>
+          <span class="text-xs text-base-content/40">{activityStatus()}</span>
 
           {/* live badges */}
           <Show when={pendingTools() > 0}>
@@ -154,6 +160,12 @@ export default function ActivityPanel() {
         {/* Body */}
         <Show when={open()}>
           <div class="px-3 pb-3 space-y-1.5 border-t border-base-300">
+            <Show when={state.status === 'running' && toolCount() === 0 && subagentIds().length === 0}>
+              <div class="px-1 py-3 text-xs text-base-content/50">
+                The agent is working. No tool activity has been emitted yet.
+              </div>
+            </Show>
+
             {/* tools */}
             <Show when={toolCount() > 0}>
               <p class="text-xs text-base-content/40 pt-2 pb-1 uppercase tracking-wide">Tools</p>
