@@ -67,7 +67,8 @@ async def chat_stream(req: WebChatRequest):
             # We pass the history from the request to run_streaming
             async for chunk in agent.run_streaming(req.history):
                 # LiteLLM's chunk is a Pydantic model; model_dump_json is standard
-                yield f"data: {chunk.model_dump_json()}\n\n"
+                event_data = json.dumps({"type": "chunk", "chunk": chunk.model_dump()})
+                yield f"data: {event_data}\n\n"
 
         except Exception as e:
             # Send the error as a JSON-formatted SSE event so the frontend can parse it
