@@ -118,8 +118,11 @@ class AgentConstructor:
             every turn.
           - Last message: creates a checkpoint the next turn can resume from.
 
-        Providers that don't support cache_control silently drop the
-        annotation thanks to ``drop_params=True``.
+        NOTE: ``drop_params=True`` only strips unsupported *top-level* params;
+        it does NOT remove ``cache_control`` fields once litellm has injected
+        them into message payloads. Strict upstream gateways (e.g. OpenCode)
+        hard-reject those fields, so ``run_streaming`` only enables injection
+        for providers that accept it (see the OpenCode guard there).
         """
         points: list[dict] = [
             {"location": "message", "role": "system"},
@@ -155,11 +158,17 @@ class AgentConstructor:
             # LiteLLM response-cache layer
             "caching": True,
             "cache_key": self._build_cache_key(messages),
-            # Provider-level prompt-cache annotations (Anthropic / OpenAI)
-            "cache_control_injection_points": (
-                self._build_cache_control_injection_points(messages)
-            ),
         }
+
+        # Provider-level prompt-cache annotations (Anthropic / OpenAI).
+        # NOT for OpenCode Go: its upstream gateway strictly validates the
+        # request body and hard-rejects the injected ``cache_control`` fields
+        # (drop_params cannot help here -- the fields are already embedded in
+        # the message payloads by the time drop_params runs).
+        if not self._is_opencode():
+            completion_kwargs["cache_control_injection_points"] = (
+                self._build_cache_control_injection_points(messages)
+            )
 
         # Optional extras ----------------------------------------------------
         if self.parameters.tools:
