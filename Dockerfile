@@ -64,7 +64,7 @@ RUN mkdir -p /var/cache/podlet/npm \
              /var/cache/podlet/xdg/cache \
              /var/cache/podlet/xdg/config \
              /var/cache/podlet/xdg/data \
-  && chown -R 1000:1000 /var/cache/podlet
+  && find /var/cache/podlet -type d -exec chmod 1777 {} +
 
 ENV NPM_CONFIG_CACHE=/var/cache/podlet/npm
 ENV npm_config_cache=/var/cache/podlet/npm
@@ -100,9 +100,8 @@ COPY --from=frontend-build /app/apps/web/dist /app/frontend/dist
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
-# No HOME is set in the image; compose propagates the host HOME so homedir()
-# resolves to the same path as on the host and matches the .podlet mount.
-USER 1000:1000
+# The runtime UID/GID is supplied by compose from the host user.
+# Do not bake a host-specific UID into the image.
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["bun", "run", "apps/gateway/src/start_prod_server.ts"]
