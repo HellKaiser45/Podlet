@@ -32,6 +32,9 @@ class WebChatRequest(BaseModel):
     api_key_name: Optional[str] = None
     reasoning_effort: Optional[Literal["low", "medium", "high", "none"]] = None
     response_format: Optional[dict] = None
+    session_id: Optional[str] = None
+    user_agent: Optional[str] = None
+    headers: Optional[dict] = None
 
 
 @app.post("/chat/stream")
@@ -49,6 +52,7 @@ async def chat_stream(req: WebChatRequest):
         api_key_name=req.api_key_name,
         reasoning_effort=req.reasoning_effort,
         base_url=req.base_url,
+        extra_headers=req.headers,
     )
 
     agent_params = AgentRequest(
@@ -57,6 +61,8 @@ async def chat_stream(req: WebChatRequest):
         tools=req.tools,
         response_format=req.response_format,
         config=llm_config,
+        session_id=req.session_id,
+        user_agent=req.user_agent,
     )
 
     # 2. Initialize the agent

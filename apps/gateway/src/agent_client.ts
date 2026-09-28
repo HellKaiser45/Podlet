@@ -3,6 +3,9 @@ import type { AgentRequest, AgentStreamEvent, LiteLLMStreamedChunk, ThinkingAnth
 import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
+import pkg from '../../package.json';
+
+const PODLET_USER_AGENT = `podlet/${pkg.version}`;
 
 export class AgentClient {
   private readonly streamEndpoint = '/chat/stream'
@@ -12,7 +15,7 @@ export class AgentClient {
     this.appContainer = appcontainer;
   }
 
-  private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<AgentRequest> {
+  private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem, sessionId: string): Promise<AgentRequest> {
     const agent = this.appContainer.agentManager.agents[agentId];
     const model = this.appContainer.modelManager.models[agent.model];
     const coreTools = new CoreToolsManager(vfileSystem);
@@ -44,11 +47,14 @@ export class AgentClient {
       history: history as AgentRequest['history'],
       tools: cleanedTools.length > 0 ? cleanedTools : undefined,
       response_format: agent.response_format,
+      session_id: sessionId,
+      user_agent: PODLET_USER_AGENT,
+      headers: model.headers,
     }
   }
 
-  async *chatStream(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
-    const request = await this.buildRequest(agentId, history, vfileSystem)
+  async *chatStream(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem, sessionId: string): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
+    const request = await this.buildRequest(agentId, history, vfileSystem, sessionId)
     const baseUrl = this.appContainer.initConfig.llmApiUrl.replace(/\/$/, '');
     const url = baseUrl + this.streamEndpoint;
 

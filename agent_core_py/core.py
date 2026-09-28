@@ -7,6 +7,7 @@ from typing import AsyncGenerator, Literal, Optional, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel
 import litellm
+from identity_headers import build_identity_headers
 from litellm import acompletion, CustomStreamWrapper
 from litellm.types.utils import ModelResponseStream
 from openai.types.chat import ChatCompletionFunctionTool
@@ -31,6 +32,7 @@ class LLMConfig(BaseModel):
     temperature: Optional[float] = None
     api_key_name: Optional[str] = None
     reasoning_effort: Optional[Literal["low", "medium", "high", "none"]] = None
+    extra_headers: Optional[dict] = None
 
 
 class AgentRequest(BaseModel):
@@ -39,6 +41,8 @@ class AgentRequest(BaseModel):
     tools: Optional[list[ChatCompletionFunctionTool]] = None
     response_format: Optional[dict] = None
     config: LLMConfig
+    session_id: Optional[str] = None
+    user_agent: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +58,12 @@ class AgentConstructor:
 
     def __init__(self, parameters: AgentRequest):
         self.parameters = parameters
-        self._conversation_id = self._compute_conversation_id()
+        # Prefer an explicit session id (stable per conversation, inherited by
+        # subagent loops); fall back to the content hash so direct Python
+        # callers keep the previous behavior.
+        self._conversation_id = (
+            self.parameters.session_id or self._compute_conversation_id()
+        )
         self._setup_environment()
 
     # ---- helpers -----------------------------------------------------------
@@ -165,6 +174,15 @@ class AgentConstructor:
             completion_kwargs["reasoning_effort"] = cfg.reasoning_effort
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
+
+        headers = build_identity_headers(
+            provider=cfg.provider,
+            session_id=self._conversation_id,
+            user_agent=self.parameters.user_agent,
+            extra_headers=cfg.extra_headers,
+        )
+        if headers:
+            completion_kwargs["extra_headers"] = headers
 
         # Logging ------------------------------------------------------------
         print(

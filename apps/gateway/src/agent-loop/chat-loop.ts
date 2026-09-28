@@ -117,7 +117,7 @@ export class AgentChatLoop {
 
       const messageId = randomUUIDv7()
 
-      for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs)) {
+      for await (const choice of this.appContainer.agentClient.chatStream(this.agentDef.agentId, this.context.frame.history, this.vfs, this.context.input.threadId)) {
         if (!choice.choices || choice.choices.length === 0) continue;
 
         const chunk = choice.choices[0];
