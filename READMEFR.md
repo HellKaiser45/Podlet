@@ -63,7 +63,13 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 - **Avant :** modifiez le dossier germe `.podlet/` du dépôt avant votre premier init/build — vos modifications seront reprises dans la copie.
 - **Après :** modifiez directement `~/.podlet/` à tout moment — c'est ce que l'application en cours d'exécution lit.
 
-**Où sont mes données ?** Les données de Podlet se trouvent dans `~/.podlet` sur la machine hôte, montées (bind mount) dans le conteneur à `/root/.podlet`. Rien n'est stocké à l'intérieur des conteneurs — la configuration, les agents, l'historique des conversations et les fichiers générés survivent tous aux reconstructions et réinitialisations.
+**Où sont mes données ?** Les données de Podlet se trouvent dans `~/.podlet` sur la machine hôte, montées (bind mount) dans le conteneur au même chemin (votre `$HOME`). Rien n'est stocké à l'intérieur des conteneurs — la configuration, les agents, l'historique des conversations et les fichiers générés survivent tous aux reconstructions et réinitialisations.
+
+> [!NOTE]
+> **Migration depuis les précédentes versions Docker :** les conteneurs tournaient auparavant en root avec les données montées à `/root/.podlet`. Ils tournent désormais avec l'UID/GID 1000 et votre propre `HOME` est transmis, donc avant le premier lancement de la nouvelle version, corrigez les droits sur l'hôte : `sudo chown -R $(id -u):$(id -g) ~/.podlet`. Les caches d'outils (`npx`/`uvx`/navigateurs) vivent dans le conteneur et sont recréés à chaque recréation du conteneur.
+
+> [!NOTE]
+> **Installations Docker neuves :** avant votre premier `docker compose up`, exécutez `mkdir -p ~/.podlet` sur l'hôte (avec le chemin spécifique à votre OS indiqué ci-dessous). Sinon, Docker crée automatiquement le dossier en tant que root et le conteneur ne peut pas y écrire.
 
 > [!NOTE]
 > **Utilisateurs Windows :** le montage utilise `$HOME/.podlet`. Dans un shell `cmd` Windows classique, `HOME` n'est souvent pas définie — définissez-la (`set HOME=%USERPROFILE%`) avant d'exécuter `docker compose up`. Dans PowerShell, utilisez plutôt `$env:HOME = $env:USERPROFILE`.

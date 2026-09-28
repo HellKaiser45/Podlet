@@ -63,7 +63,13 @@ You can customize either before or after that first copy:
 - **Before:** edit the repo's `.podlet/` seed prior to your first init/build — your changes carry over in the copy.
 - **After:** edit `~/.podlet/` directly at any time — this is what the running app reads.
 
-**Where is my data?** Podlet's data lives in `~/.podlet` on the host, bind-mounted into the container at `/root/.podlet`. Nothing is stored inside the containers — config, agents, chat history, and generated files all survive rebuilds and resets.
+**Where is my data?** Podlet's data lives in `~/.podlet` on the host, bind-mounted into the container at the same path (your `$HOME`). Nothing is stored inside the containers — config, agents, chat history, and generated files all survive rebuilds and resets.
+
+> [!NOTE]
+> **Migration from previous Docker versions:** containers used to run as root with the data mounted at `/root/.podlet`. Containers now run as UID/GID 1000 with your own `HOME` passed through, so before the first launch of the new version, fix ownership on the host: `sudo chown -R $(id -u):$(id -g) ~/.podlet`. Tool caches (`npx`/`uvx`/browser installs) live inside the container and are re-created when the container is recreated.
+
+> [!NOTE]
+> **Fresh Docker installs:** before your first `docker compose up`, run `mkdir -p ~/.podlet` on the host (using the OS-specific path noted below). Otherwise Docker auto-creates the directory as root-owned and the container cannot write to it.
 
 > [!NOTE]
 > **Windows users:** the mount uses `$HOME/.podlet`. In a plain Windows `cmd` shell, `HOME` is often unset — export it (`set HOME=%USERPROFILE%`) before running `docker compose up`. In PowerShell, use `$env:HOME = $env:USERPROFILE` instead.

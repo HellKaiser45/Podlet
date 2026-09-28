@@ -42,18 +42,40 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && \
   pip3 install --break-system-packages uv && \
   apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install browser dependencies for MCP servers (Playwright, Puppeteer, Selenium)
+# Install system Chromium (for Puppeteer-based MCPs) and git
 RUN apt-get update && apt-get install -y \
   chromium \
   git \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright browsers (also installs all remaining system deps)
-RUN npx playwright install --with-deps chromium
-
 # Tell Puppeteer to use system Chromium instead of downloading its own
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV CHROME_PATH=/usr/bin/chromium
+
+# Runtime caches live on the container filesystem (ephemeral) — never under $HOME,
+# which is a bind-mount target at runtime. Tools (npx/uvx/bun/chromium) must not
+# attempt writes outside these dirs or the mounted .podlet.
+RUN mkdir -p /var/cache/podlet/npm \
+             /var/cache/podlet/uv/cache \
+             /var/cache/podlet/uv/tools \
+             /var/cache/podlet/uv/tools-bin \
+             /var/cache/podlet/uv/python \
+             /var/cache/podlet/bun \
+             /var/cache/podlet/xdg/cache \
+             /var/cache/podlet/xdg/config \
+             /var/cache/podlet/xdg/data \
+  && chown -R 1000:1000 /var/cache/podlet
+
+ENV NPM_CONFIG_CACHE=/var/cache/podlet/npm
+ENV npm_config_cache=/var/cache/podlet/npm
+ENV UV_CACHE_DIR=/var/cache/podlet/uv/cache
+ENV UV_TOOL_DIR=/var/cache/podlet/uv/tools
+ENV UV_TOOL_BIN_DIR=/var/cache/podlet/uv/tools-bin
+ENV UV_PYTHON_INSTALL_DIR=/var/cache/podlet/uv/python
+ENV BUN_INSTALL_CACHE_DIR=/var/cache/podlet/bun
+ENV XDG_CACHE_HOME=/var/cache/podlet/xdg/cache
+ENV XDG_CONFIG_HOME=/var/cache/podlet/xdg/config
+ENV XDG_DATA_HOME=/var/cache/podlet/xdg/data
 
 # Copy workspace manifests and install production deps only
 COPY package.json bun.lockb* bun.lock* ./
@@ -75,11 +97,12 @@ COPY tsconfig.json tsconfig.json
 # Copy the built frontend from Stage 1
 COPY --from=frontend-build /app/apps/web/dist /app/frontend/dist
 
-# Ensure homedir() resolves to /root so ~/.podlet matches the volume mount
-ENV HOME=/root
-
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
+
+# No HOME is set in the image; compose propagates the host HOME so homedir()
+# resolves to the same path as on the host and matches the .podlet mount.
+USER 1000:1000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["bun", "run", "apps/gateway/src/start_prod_server.ts"]

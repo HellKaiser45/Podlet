@@ -2,8 +2,10 @@ services:
   agent-core:
     build:
       context: ./agent_core_py
+    environment:
+      - HOME=${HOME}
     volumes:
-      - $HOME/.podlet:/root/.podlet
+      - ${HOME}/.podlet:${HOME}/.podlet
     networks:
       - podlet-internal
     restart: unless-stopped
@@ -16,8 +18,9 @@ services:
     environment:
       - PODLET_DOCKER=1
       - LLM_SERVICE_HOST=agent-core
+      - HOME=${HOME}
     volumes:
-      - $HOME/.podlet:/root/.podlet
+      - ${HOME}/.podlet:${HOME}/.podlet
     networks:
       - podlet-internal
     depends_on:
