@@ -10,7 +10,7 @@
   },
   "opencode": {
     "provider": "openai",
-    "model": "claude-sonnet-4-5",
+    "model": "glm-5.1",
     "base_url": "https://opencode.ai/zen/go/v1",
     "api_key_name": "OPENCODE_API_KEY"
   }
