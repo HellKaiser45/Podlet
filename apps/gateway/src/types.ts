@@ -99,8 +99,6 @@ export interface AgentRequest {
 
   // App identity
   session_id?: string;
-  user_agent?: string;
-  headers?: Record<string, string>;
 }
 
 //=======================================================================================
@@ -172,8 +170,6 @@ export interface ModelConfig {
   temperature?: number;
   reasoning_effort?: ReasoningEffort;
   base_url?: string;
-  /** Per-model custom headers merged last into LLM request headers */
-  headers?: Record<string, string>;
 }
 
 /** ~/.podelet/agents/*.json */

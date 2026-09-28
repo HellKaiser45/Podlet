@@ -3,9 +3,6 @@ import type { AgentRequest, AgentStreamEvent, LiteLLMStreamedChunk, ThinkingAnth
 import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
-import pkg from '../../package.json';
-
-const PODLET_USER_AGENT = `podlet/${pkg.version}`;
 
 export class AgentClient {
   private readonly streamEndpoint = '/chat/stream'
@@ -48,8 +45,6 @@ export class AgentClient {
       tools: cleanedTools.length > 0 ? cleanedTools : undefined,
       response_format: agent.response_format,
       session_id: sessionId,
-      user_agent: PODLET_USER_AGENT,
-      headers: model.headers,
     }
   }
 

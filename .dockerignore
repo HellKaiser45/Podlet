@@ -7,6 +7,5 @@ apps/web/dist
 *.db-journal
 .env
 .env.*
-!.env.example
 README.md
 LICENSE

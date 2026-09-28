@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, cpSync, rmSync, renameSync } from 'node:fs';
+import { existsSync, cpSync, rmSync } from 'node:fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
@@ -108,14 +108,13 @@ async function main() {
 
   rmSync(podletDir, { recursive: true, force: true });
   cpSync(join(repoRoot, ".podlet"), podletDir, { recursive: true })
-  renameSync(join(podletDir, '.env.example'), join(podletDir, '.env'))
 
 
   // ── Done ─────────────────────────────────────────────
   console.log('\n  [ok] Podlet setup complete!\n');
   console.log('  Configuration: ' + podletDir);
   console.log('');
-  console.log('api keys in .env')
+  console.log('create ~/.podlet/.env and add your api keys')
   console.log('your mcps config in mcp.json')
   console.log("add your skills in the skill folder")
   console.log("create your agents using the agent folder or directly in the interface")

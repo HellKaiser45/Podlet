@@ -42,7 +42,7 @@ if [ ! -f "${PODLET_DATA}/config.json" ]; then
   echo ""
   echo "Initializing folder Podlet Folder"
   cp -r ".podlet/." "${PODLET_DATA}/"
-  mv "${PODLET_DATA}/.env.example" "${PODLET_DATA}/.env"
+  echo "Add your API keys in ${PODLET_DATA}/.env"
   echo ""
   echo "Starting with default settings..."
   echo "============================================"

@@ -24,7 +24,7 @@ cd Podlet
 docker compose up -d
 ```
 
-Add at least one provider key to `~/.podlet/.env` (created on first run — see [Configuration](#env)):
+Add at least one provider key to `~/.podlet/.env` (create it — see [Configuration](#env)):
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
@@ -56,7 +56,7 @@ Open **<http://localhost:3002>**. *(Source mode runs a separate Vite dev server 
 
 ## Configuration
 
-**How configuration gets there:** the repo ships a `.podlet/` seed folder — default `config.json`, `models.json`, `mcp.json`, agents, skills, and an empty `.env` template. On the first `bun run init` (source) or the first `docker compose up -d` (Docker), that seed folder is copied to `~/.podlet/`, which becomes the live config directory the running app reads from thereafter.
+**How configuration gets there:** the repo ships a `.podlet/` seed folder — default `config.json`, `models.json`, `mcp.json`, agents, and skills. On the first `bun run init` (source) or the first `docker compose up -d` (Docker), that seed folder is copied to `~/.podlet/`, which becomes the live config directory the running app reads from thereafter.
 
 You can customize either before or after that first copy:
 
@@ -132,7 +132,7 @@ The compose file maps the gateway as `3000:3000`. To expose Podlet on a differen
 
 ### `.env`
 
-API keys live in `~/.podlet/.env`, one per provider (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). The Python core reads this file on every request — edits apply without restarting.
+API keys live in `~/.podlet/.env`, one per provider (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). The Python core reads this file on every request — edits apply without restarting. Create this file yourself if it doesn't exist yet (e.g. `touch ~/.podlet/.env`); it is no longer generated on first run.
 
 ### `models.json`
 
@@ -155,9 +155,7 @@ Podlet identifies itself to LLM providers with a `User-Agent: podlet/<version>` 
 
 To use OpenCode Go: set `OPENCODE_API_KEY` in `~/.podlet/.env` and point an agent at the `opencode` entry in `models.json` (provider `openai`, base_url `https://opencode.ai/zen/go/v1`). Check the OpenCode Go dashboard for the exact model ids.
 
-For OpenRouter models, `X-OpenRouter-Title: Podlet` (plus legacy alias `X-Title` with the same value) and `HTTP-Referer: https://github.com/HellKaiser45/Podlet` are sent automatically for app attribution; override them via `OPENROUTER_APP_TITLE` / `OPENROUTER_APP_REFERER` in `.env`. You can also override the `User-Agent` globally with `PODLET_USER_AGENT`.
-
-Finally, any `models.json` entry accepts an optional `headers` object — these custom headers are merged into the LLM request headers with the highest precedence.
+For OpenRouter models, `X-OpenRouter-Title: Podlet` (plus legacy alias `X-Title` with the same value) and `HTTP-Referer: https://github.com/HellKaiser45/Podlet` are sent automatically for app attribution.
 
 ### `mcp.json`
 

@@ -24,7 +24,7 @@ cd Podlet
 docker compose up -d
 ```
 
-Ajoutez au moins une clé de fournisseur dans `~/.podlet/.env` (créé au premier lancement — voir [Configuration](#configuration)) :
+Ajoutez au moins une clé de fournisseur dans `~/.podlet/.env` (créez-le — voir [Configuration](#configuration)) :
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
@@ -56,7 +56,7 @@ Ouvrez **<http://localhost:3002>**. *(Le mode source exécute un serveur de dév
 
 ## Configuration
 
-**Comment la configuration arrive là :** le dépôt fournit un dossier `.podlet/` germe (« seed ») — `config.json`, `models.json`, `mcp.json`, les agents, les skills, et un modèle `.env` vide par défaut. Au premier `bun run init` (source) ou au premier `docker compose up -d` (Docker), ce dossier germe est copié vers `~/.podlet/`, qui devient le dossier de configuration actif que l'application lit ensuite.
+**Comment la configuration arrive là :** le dépôt fournit un dossier `.podlet/` germe (« seed ») — `config.json`, `models.json`, `mcp.json`, les agents et les skills. Au premier `bun run init` (source) ou au premier `docker compose up -d` (Docker), ce dossier germe est copié vers `~/.podlet/`, qui devient le dossier de configuration actif que l'application lit ensuite.
 
 Vous pouvez le personnaliser avant ou après cette première copie :
 
@@ -132,7 +132,7 @@ Le fichier compose mappe la gateway en `3000:3000`. Pour exposer Podlet sur un a
 
 ### `.env`
 
-Les clés d'API se trouvent dans `~/.podlet/.env`, une par fournisseur (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). Le core Python lit ce fichier à chaque requête — les modifications s'appliquent sans redémarrage.
+Les clés d'API se trouvent dans `~/.podlet/.env`, une par fournisseur (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). Le core Python lit ce fichier à chaque requête — les modifications s'appliquent sans redémarrage. Créez ce fichier vous-même s'il n'existe pas encore (ex. `touch ~/.podlet/.env`) ; il n'est plus généré au premier lancement.
 
 ### `models.json`
 

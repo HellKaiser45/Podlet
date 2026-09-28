@@ -32,7 +32,6 @@ class LLMConfig(BaseModel):
     temperature: Optional[float] = None
     api_key_name: Optional[str] = None
     reasoning_effort: Optional[Literal["low", "medium", "high", "none"]] = None
-    extra_headers: Optional[dict] = None
 
 
 class AgentRequest(BaseModel):
@@ -42,7 +41,6 @@ class AgentRequest(BaseModel):
     response_format: Optional[dict] = None
     config: LLMConfig
     session_id: Optional[str] = None
-    user_agent: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -175,12 +173,7 @@ class AgentConstructor:
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
 
-        headers = build_identity_headers(
-            provider=cfg.provider,
-            session_id=self._conversation_id,
-            user_agent=self.parameters.user_agent,
-            extra_headers=cfg.extra_headers,
-        )
+        headers = build_identity_headers(provider=cfg.provider, session_id=self._conversation_id)
         if headers:
             completion_kwargs["extra_headers"] = headers
 
