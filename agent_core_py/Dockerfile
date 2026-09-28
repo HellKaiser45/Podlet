@@ -13,7 +13,7 @@ COPY main.py .
 # (which is a bind-mount target at runtime). agent-core itself only needs pip.
 RUN mkdir -p /var/cache/podlet/pip /var/cache/podlet/uv/cache \
   /var/cache/podlet/xdg/cache /var/cache/podlet/xdg/config /var/cache/podlet/xdg/data \
-  && find /var/cache/podlet -type d -exec chmod 1777 {} +
+  && chown -R 1000:1000 /var/cache/podlet
 
 ENV PIP_CACHE_DIR=/var/cache/podlet/pip
 ENV UV_CACHE_DIR=/var/cache/podlet/uv/cache
@@ -23,7 +23,8 @@ ENV XDG_DATA_HOME=/var/cache/podlet/xdg/data
 
 EXPOSE 8000
 
-# The runtime UID/GID is supplied by compose from the host user.
-# Do not bake a host-specific UID into the image.
+# No HOME set in the image; compose propagates the host HOME so expanduser()
+# resolves to the same path as on the host and matches the .podlet mount.
+USER 1000:1000
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
