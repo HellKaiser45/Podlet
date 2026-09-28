@@ -191,6 +191,27 @@ export class AgentChatLoop {
       }
 
       const terminalMessage = accu.buildMessage();
+
+      // Never persist malformed tool-call arguments into history: strict
+      // upstream gateways (e.g. OpenCode) validate the JSON of every
+      // tool_calls[].function.arguments entry in the history and hard-reject
+      // the whole request on invalid JSON. Replace invalid payloads with a
+      // valid-JSON marker; executeTools translates the marker into an
+      // explicit retry error for the model.
+      if (isAssistantWithToolCalls(terminalMessage)) {
+        for (const tc of terminalMessage.tool_calls) {
+          if (tc.type !== "function" || !tc.function?.arguments) continue;
+          try {
+            JSON.parse(tc.function.arguments);
+          } catch {
+            console.warn(
+              `[chat-loop] Malformed JSON in tool '${tc.function?.name}' arguments — replacing with _malformed_json marker`
+            );
+            tc.function.arguments = JSON.stringify({ _malformed_json: true });
+          }
+        }
+      }
+
       this.context.frame.history.push(terminalMessage);
 
       if (terminalFinishReason === "tool_calls") {
@@ -228,6 +249,21 @@ export class AgentChatLoop {
 
       try {
         const args = JSON.parse(call.function.arguments);
+
+        // Marker set at finalization (see callLLM): the raw arguments were
+        // not valid JSON. Do not execute the tool with garbage args -- throw
+        // so the existing catch below turns this into an explicit
+        // "please retry" tool result for the model.
+        if (
+          args !== null &&
+          typeof args === "object" &&
+          !Array.isArray(args) &&
+          "_malformed_json" in args
+        ) {
+          throw new Error(
+            `Invalid JSON in arguments for tool '${call.function.name}' — please retry with valid JSON arguments`
+          );
+        }
 
         emit({
           AgentId: this.agentDef.agentId,

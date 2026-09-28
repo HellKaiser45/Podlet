@@ -179,7 +179,14 @@ class AgentConstructor:
             completion_kwargs["api_base"] = cfg.base_url
         if cfg.temperature is not None:
             completion_kwargs["temperature"] = cfg.temperature
-        if cfg.reasoning_effort is not None:
+        # OpenCode Go: its upstream gateway rejects native reasoning-control
+        # params with a 400 ("native reasoning control reasoning_effort is
+        # not allowed") -- the reasoning budget is managed server-side by
+        # OpenCode. Since the endpoint is served to litellm as a generic
+        # openai-compatible provider, litellm considers reasoning_effort a
+        # valid OpenAI param and forwards it (drop_params cannot help), so
+        # the guard must live here.
+        if cfg.reasoning_effort is not None and not self._is_opencode():
             completion_kwargs["reasoning_effort"] = cfg.reasoning_effort
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
