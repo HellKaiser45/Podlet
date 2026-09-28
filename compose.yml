@@ -1,5 +1,9 @@
+x-podlet-user: &podlet-user
+  user: "${PODLET_UID:?PODLET_UID is required. Use scripts/docker-compose.sh}:${PODLET_GID:?PODLET_GID is required. Use scripts/docker-compose.sh}"
+
 services:
   agent-core:
+    <<: *podlet-user
     build:
       context: ./agent_core_py
     environment:
@@ -11,6 +15,7 @@ services:
     restart: unless-stopped
 
   gateway:
+    <<: *podlet-user
     build:
       context: .
     ports:
