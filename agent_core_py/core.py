@@ -62,7 +62,7 @@ class AgentConstructor:
         load_dotenv(Path(self.parameters.config.configpath) / ".env")
 
     def _compute_conversation_id(self) -> str:
-        """Stable 16-char hex id derived from the first non-system message.
+        """Stable 32-char hex id derived from the first non-system message.
 
         Remains constant across every turn within the same conversation.
         Falls back to ``"default"`` when the history is empty.
@@ -77,7 +77,16 @@ class AgentConstructor:
         if isinstance(content, list):
             # Flatten list-based content (e.g. OpenAI multimodal blocks)
             content = json.dumps(content, sort_keys=True, default=str)
-        return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()[:32]
+
+    def _is_opencode(self) -> bool:
+        """OpenCode Go routes via an OpenAI-compatible provider (LiteLLM has
+        no native 'opencode' prefix), so detect it by provider name OR by
+        base_url pointing at opencode.ai."""
+        cfg = self.parameters.config
+        if cfg.provider == "opencode":
+            return True
+        return bool(cfg.base_url and "opencode.ai" in cfg.base_url)
 
     def _build_cache_key(self, messages: list[dict]) -> str:
         """Composite cache key: conversation id + message-content fingerprint.
@@ -174,13 +183,13 @@ class AgentConstructor:
                 "HTTP-Referer": "https://github.com/HellKaiser45/Podlet",
                 "X-OpenRouter-Title": "Podlet",
             })
-        if cfg.provider == "opencode":
+        if self._is_opencode():
             # OpenCode subscription compatibility: identify as this app
             # (not a generic SDK) and send a stable per-conversation session
             # id so routing/prompt caching can be optimized.
             extra_headers.update({
                 "User-Agent": "Podlet/1.0",
-                "x-opencode-session": self._conversation_id,
+                "x-opencode-session": f"ses_{self._conversation_id}",
             })
         if extra_headers:
             completion_kwargs["extra_headers"] = extra_headers
