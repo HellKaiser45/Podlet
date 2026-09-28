@@ -165,11 +165,25 @@ class AgentConstructor:
             completion_kwargs["reasoning_effort"] = cfg.reasoning_effort
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
+
+        # Provider identification headers -----------------------------------
+        extra_headers: dict[str, str] = {}
         if cfg.provider == "openrouter":
-            completion_kwargs["extra_headers"] = {
+            # App attribution per OpenRouter specs
+            extra_headers.update({
                 "HTTP-Referer": "https://github.com/HellKaiser45/Podlet",
                 "X-OpenRouter-Title": "Podlet",
-            }
+            })
+        if cfg.provider == "opencode":
+            # OpenCode subscription compatibility: identify as this app
+            # (not a generic SDK) and send a stable per-conversation session
+            # id so routing/prompt caching can be optimized.
+            extra_headers.update({
+                "User-Agent": "Podlet/1.0",
+                "x-opencode-session": self._conversation_id,
+            })
+        if extra_headers:
+            completion_kwargs["extra_headers"] = extra_headers
 
         # Logging ------------------------------------------------------------
         print(
