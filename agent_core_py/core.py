@@ -173,7 +173,11 @@ class AgentConstructor:
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
 
-        headers = build_identity_headers(\n            provider=cfg.provider,\n            session_id=self._conversation_id,\n            base_url=cfg.base_url,\n        )
+        headers = build_identity_headers(
+            provider=cfg.provider,
+            session_id=self._conversation_id,
+            base_url=cfg.base_url,
+        )
         if headers:
             completion_kwargs["extra_headers"] = headers
 
