@@ -21,7 +21,7 @@
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
-./scripts/docker-compose.sh up -d
+docker compose up -d
 ```
 
 Add at least one provider key to `~/.podlet/.env` (create it — see [Configuration](#env)):
@@ -56,7 +56,7 @@ Open **<http://localhost:3002>**. *(Source mode runs a separate Vite dev server 
 
 ## Configuration
 
-**How configuration gets there:** the repo ships a `.podlet/` seed folder — default `config.json`, `models.json`, `mcp.json`, agents, and skills. On the first `bun run init` (source) or the first Docker start, that seed folder is copied to `~/.podlet/`, which becomes the live config directory the running app reads from thereafter. Use `./scripts/docker-compose.sh` for Docker so the containers run with the same UID/GID as the user starting them.
+**How configuration gets there:** the repo ships a `.podlet/` seed folder — default `config.json`, `models.json`, `mcp.json`, agents, and skills. On the first `bun run init` (source) or the first `docker compose up -d` (Docker), that seed folder is copied to `~/.podlet/`, which becomes the live config directory the running app reads from thereafter.
 
 You can customize either before or after that first copy:
 
@@ -66,9 +66,10 @@ You can customize either before or after that first copy:
 **Where is my data?** Podlet's data lives in `~/.podlet` on the host, bind-mounted into the container at the same path (your `$HOME`). Nothing is stored inside the containers — config, agents, chat history, and generated files all survive rebuilds and resets.
 
 > [!NOTE]
-> **Docker user permissions:** the Compose helper exports your host UID/GID and creates `~/.podlet` before Docker mounts it. The gateway and agent-core then run as that same UID/GID, so files written to the bind mount belong to the user who started Podlet rather than root. Tool caches remain inside the container and are writable by the runtime UID.
->
-> If you already have a root-owned `~/.podlet` from an older release, migrate it once with `sudo chown -R $(id -u):$(id -g) ~/.podlet`.
+> **Migration from previous Docker versions:** containers used to run as root with the data mounted at `/root/.podlet`. Containers now run as UID/GID 1000 with your own `HOME` passed through, so before the first launch of the new version, fix ownership on the host: `sudo chown -R $(id -u):$(id -g) ~/.podlet`. Tool caches (`npx`/`uvx`/browser installs) live inside the container and are re-created when the container is recreated.
+
+> [!NOTE]
+> **Fresh Docker installs:** before your first `docker compose up`, run `mkdir -p ~/.podlet` on the host (using the OS-specific path noted below). Otherwise Docker auto-creates the directory as root-owned and the container cannot write to it.
 
 > [!NOTE]
 > **Windows users:** the mount uses `$HOME/.podlet`. In a plain Windows `cmd` shell, `HOME` is often unset — export it (`set HOME=%USERPROFILE%`) before running `docker compose up`. In PowerShell, use `$env:HOME = $env:USERPROFILE` instead.
@@ -150,11 +151,11 @@ Agent files reference these entries by key (`"model": "smart"`) — see [Agent C
 
 #### OpenCode Go and app identity headers
 
-Podlet sends a stable `User-Agent: podlet/1.0` on outbound LLM requests. For OpenCode Go endpoints it also sends `x-opencode-session` using the conversation/thread id, so every turn in one conversation reuses the same routing and prompt-cache identity.
+Podlet identifies itself to LLM providers with a `User-Agent: podlet/<version>` header and a stable `x-opencode-session: <threadId>` header on every request (needed for OpenCode Go routing and prompt caching).
 
-To use OpenCode Go, set `OPENCODE_API_KEY` in `~/.podlet/.env` and point an agent at the `opencode` entry in `models.json`. The seed uses `glm-5.1`, currently documented by OpenCode Go as an OpenAI-compatible chat-completions model.
+To use OpenCode Go: set `OPENCODE_API_KEY` in `~/.podlet/.env` and point an agent at the `opencode` entry in `models.json` (provider `openai`, base_url `https://opencode.ai/zen/go/v1`). Check the OpenCode Go dashboard for the exact model ids.
 
-For OpenRouter models, Podlet automatically sends both app-attribution headers: `HTTP-Referer: https://github.com/HellKaiser45/Podlet` and `X-OpenRouter-Title: Podlet`. The legacy `X-Title` alias is also sent. To use a different identity — including a localhost URL — set `OPENROUTER_APP_REFERER` and `OPENROUTER_APP_TITLE` in `~/.podlet/.env`.
+For OpenRouter models, `X-OpenRouter-Title: Podlet` (plus legacy alias `X-Title` with the same value) and `HTTP-Referer: https://github.com/HellKaiser45/Podlet` are sent automatically for app attribution.
 
 ### `mcp.json`
 
