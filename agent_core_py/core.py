@@ -165,6 +165,11 @@ class AgentConstructor:
             completion_kwargs["reasoning_effort"] = cfg.reasoning_effort
         if cfg.api_key_name:
             completion_kwargs["api_key"] = os.getenv(cfg.api_key_name, "")
+        if cfg.provider == "openrouter":
+            completion_kwargs["extra_headers"] = {
+                "HTTP-Referer": "https://github.com/HellKaiser45/Podlet",
+                "X-OpenRouter-Title": "Podlet",
+            }
 
         # Logging ------------------------------------------------------------
         print(
