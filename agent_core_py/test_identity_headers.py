@@ -115,6 +115,11 @@ def test_openrouter_attribution() -> None:
             f"got {h.get('HTTP-Referer')!r}",
         )
         check(
+            "X-OpenRouter-Title default",
+            h.get("X-OpenRouter-Title") == OPENROUTER_DEFAULT_TITLE,
+            f"got {h.get('X-OpenRouter-Title')!r}",
+        )
+        check(
             "X-Title default",
             h.get("X-Title") == OPENROUTER_DEFAULT_TITLE,
             f"got {h.get('X-Title')!r}",
@@ -123,7 +128,12 @@ def test_openrouter_attribution() -> None:
     def env_overrides():
         h = build_identity_headers(provider="openrouter", session_id="s1")
         check(
-            "X-Title env override",
+            "X-OpenRouter-Title env override",
+            h.get("X-OpenRouter-Title") == "My Custom App",
+            f"got {h.get('X-OpenRouter-Title')!r}",
+        )
+        check(
+            "X-Title follows env override",
             h.get("X-Title") == "My Custom App",
             f"got {h.get('X-Title')!r}",
         )
@@ -137,7 +147,8 @@ def test_openrouter_attribution() -> None:
         h = build_identity_headers(provider="openai", session_id="s1")
         check(
             "no attribution headers for non-openrouter",
-            "HTTP-Referer" not in h and "X-Title" not in h,
+            ("HTTP-Referer" not in h and "X-OpenRouter-Title" not in h
+             and "X-Title" not in h),
             f"got {sorted(h)}",
         )
 

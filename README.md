@@ -155,7 +155,7 @@ Podlet identifies itself to LLM providers with a `User-Agent: podlet/<version>` 
 
 To use OpenCode Go: set `OPENCODE_API_KEY` in `~/.podlet/.env` and point an agent at the `opencode` entry in `models.json` (provider `openai`, base_url `https://opencode.ai/zen/go/v1`). Check the OpenCode Go dashboard for the exact model ids.
 
-For OpenRouter models, `X-Title: Podlet` and `HTTP-Referer` are sent automatically for app attribution; override them via `OPENROUTER_APP_TITLE` / `OPENROUTER_APP_REFERER` in `.env`. You can also override the `User-Agent` globally with `PODLET_USER_AGENT`.
+For OpenRouter models, `X-OpenRouter-Title: Podlet` (plus legacy alias `X-Title` with the same value) and `HTTP-Referer: https://github.com/HellKaiser45/Podlet` are sent automatically for app attribution; override them via `OPENROUTER_APP_TITLE` / `OPENROUTER_APP_REFERER` in `.env`. You can also override the `User-Agent` globally with `PODLET_USER_AGENT`.
 
 Finally, any `models.json` entry accepts an optional `headers` object — these custom headers are merged into the LLM request headers with the highest precedence.
 

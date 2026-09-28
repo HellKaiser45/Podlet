@@ -4,7 +4,8 @@ Podlet identifies itself to LLM providers with a custom ``User-Agent``
 (``podlet/<version>``) and a stable ``x-opencode-session`` header per
 conversation. The session header is required by OpenCode Go
 (https://opencode.ai/zen/go/v1) for routing and prompt caching. OpenRouter
-app attribution headers (``X-Title`` / ``HTTP-Referer``) are added
+app attribution headers (``X-OpenRouter-Title`` plus its legacy alias
+``X-Title``, both set to the same value, and ``HTTP-Referer``) are added
 automatically for openrouter models. Per-model custom headers supplied via
 ``models.json`` are merged last and take highest precedence.
 """
@@ -37,12 +38,12 @@ def build_identity_headers(
     }
 
     if (provider or "").lower() == "openrouter":
+        app_title = os.getenv("OPENROUTER_APP_TITLE") or OPENROUTER_DEFAULT_TITLE
         headers["HTTP-Referer"] = (
             os.getenv("OPENROUTER_APP_REFERER") or OPENROUTER_DEFAULT_REFERER
         )
-        headers["X-Title"] = (
-            os.getenv("OPENROUTER_APP_TITLE") or OPENROUTER_DEFAULT_TITLE
-        )
+        headers["X-OpenRouter-Title"] = app_title
+        headers["X-Title"] = app_title
 
     if extra_headers:
         headers.update(extra_headers)
