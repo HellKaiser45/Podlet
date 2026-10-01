@@ -4,3 +4,4 @@ litellm==1.103.0
 openai==2.30.0
 python-dotenv==1.0.1
 pydantic==2.12.5
+orjson
