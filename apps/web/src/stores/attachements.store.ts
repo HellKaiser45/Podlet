@@ -19,7 +19,7 @@ export const ALLOWED_EXTENSIONS = new Set([
   "lua", "sh", "bash", "zsh", "fish", "ps1",
   "json", "yaml", "yml", "toml", "env", "ini", "cfg",
   "xml", "csv", "sql",
-  "md", "mdx", "txt", "rst",
+  "md", "mdx", "txt", "rst", "pdf",
   "c", "cpp", "h", "hpp", "zig", "ex", "exs", "erl",
   "r", "jl", "dart", "scala", "clj",
 ]);

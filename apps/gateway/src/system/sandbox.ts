@@ -4,9 +4,13 @@ import type { FileResponse, FileUpload, VirtualScheme } from "../types";
 import { VIRTUAL_SCHEMES } from "../types";
 import SkillsManager from "./skills";
 import { ChatCompletionContentPart, ChatCompletionUserMessageParam } from "openai/resources.js";
+import { createCanvas } from "@napi-rs/canvas";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { type OfficeContentNode, type HeadingMetadata, type ListMetadata, parseOffice } from 'officeparser'
 import * as fflate from 'fflate';
 import { SerialQueue } from "../utils/serial-queue";
+
+const MAX_PDF_PAGES = 20;
 
 const DOCUMENT_EXTENSIONS = new Set([
   'docx', 'odt', 'rtf',
@@ -80,28 +84,41 @@ export class VirtualFileSystem {
 
     const results = await Promise.all(input.files.map(async (file) => {
       const buffer = await file.arrayBuffer();
-      const resolved = await this.resolveAttachment(buffer, file.type, file.name);
-      if (!resolved) {
-        console.warn(`Skipping unsupported file: ${file.name} (${file.type})`);
-        return null;
-      }
+      const isPdf = extname(file.name).toLowerCase() === ".pdf";
 
       let storedFilename: string;
-      if (resolved.type === 'image') {
+      let fileType: "text" | "image" = "text";
+
+      if (isPdf) {
+        // Keep the original PDF bytes in the workspace. Rendering happens later,
+        // when the model message is constructed.
         storedFilename = file.name;
-        await Bun.write(join(schemeRoot, storedFilename), file);
-      } else if (resolved.type === 'text') {
-        storedFilename = file.name;
-        await Bun.write(join(schemeRoot, storedFilename), resolved.content);
+        await Bun.write(join(schemeRoot, storedFilename), buffer);
       } else {
-        storedFilename = file.name.replace(/\.[^.]+$/, '.md');
-        await Bun.write(join(schemeRoot, storedFilename), resolved.content);
+        const resolved = await this.resolveAttachment(buffer, file.type, file.name);
+        if (!resolved) {
+          console.warn(`Skipping unsupported file: ${file.name} (${file.type})`);
+          return null;
+        }
+
+        if (resolved.type === "image") {
+          storedFilename = file.name;
+          fileType = "image";
+          await Bun.write(join(schemeRoot, storedFilename), buffer);
+        } else if (resolved.type === "text") {
+          storedFilename = file.name;
+          await Bun.write(join(schemeRoot, storedFilename), resolved.content);
+        } else {
+          storedFilename = file.name.replace(/\.[^.]+$/, ".md");
+          await Bun.write(join(schemeRoot, storedFilename), resolved.content);
+        }
       }
 
       return {
         name: storedFilename,
         vpath: scheme + storedFilename,
-        id: Buffer.from(scheme + storedFilename).toString('base64url'),
+        id: Buffer.from(scheme + storedFilename).toString("base64url"),
+        type: fileType,
       };
     }));
 
@@ -589,16 +606,73 @@ ${tree}
     fileIDs: string[],
     message: ChatCompletionUserMessageParam
   ): Promise<ChatCompletionUserMessageParam> {
-    const parts = await Promise.all(fileIDs.map(async (fileID): Promise<ChatCompletionContentPart> => {
+    const parts: ChatCompletionContentPart[] = [];
+
+    for (const fileID of fileIDs) {
+      const virtualPath = Buffer.from(fileID, "base64url").toString();
       const file = this.getFile(fileID);
-      if (file.type.startsWith('image/')) {
-        return {
-          type: 'image_url',
-          image_url: { url: `data:${file.type};base64,${Buffer.from(await file.arrayBuffer()).toString('base64')}` },
-        };
+
+      if (extname(virtualPath).toLowerCase() === ".pdf") {
+        const loadingTask = getDocument({
+          data: new Uint8Array(await file.arrayBuffer()),
+          useSystemFonts: true,
+          isEvalSupported: false,
+        });
+        const pdf = await loadingTask.promise;
+
+        try {
+          if (pdf.numPages > MAX_PDF_PAGES) {
+            throw new Error(
+              `PDF ${virtualPath} has ${pdf.numPages} pages; the maximum supported is ${MAX_PDF_PAGES}.`,
+            );
+          }
+
+          for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+            const page = await pdf.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = createCanvas(
+              Math.ceil(viewport.width),
+              Math.ceil(viewport.height),
+            );
+
+            try {
+              const context = canvas.getContext("2d");
+              await page.render({
+                canvasContext: context as unknown as CanvasRenderingContext2D,
+                viewport,
+              }).promise;
+
+              const png = canvas.toBuffer("image/png");
+              parts.push({
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${png.toString("base64")}`,
+                },
+              });
+            } finally {
+              page.cleanup();
+              canvas.width = 0;
+              canvas.height = 0;
+            }
+          }
+        } finally {
+          await pdf.destroy();
+        }
+
+        continue;
       }
-      return { type: 'text', text: await file.text() };
-    }));
+
+      if (file.type.startsWith("image/")) {
+        parts.push({
+          type: "image_url",
+          image_url: {
+            url: `data:${file.type};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`,
+          },
+        });
+      } else {
+        parts.push({ type: "text", text: await file.text() });
+      }
+    }
 
     const initContent: ChatCompletionContentPart[] = Array.isArray(message.content)
       ? message.content

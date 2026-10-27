@@ -11,10 +11,12 @@
     "@podlet/types": "workspace:*",
     "@podlet/config": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@napi-rs/canvas": "^0.1.97",
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
     "fflate": "^0.8.0",
     "openai": "^6.18.0",
+    "pdfjs-dist": "^5.6.205",
     "pptxgenjs": "^4.0.1",
     "zod": "^4.3.6"
   },

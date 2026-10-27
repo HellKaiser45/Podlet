@@ -35,18 +35,27 @@ interface FileContent {
   itemId: string;
   runId: string;
   isImage: boolean;
+  isPdf: boolean;
   content: string;
 }
 
-const getItemContent = query(async (itemId?: string, runIdValue?: string): Promise<FileContent | undefined> => {
+const getItemContent = query(async (itemId?: string, runIdValue?: string, fileName?: string): Promise<FileContent | undefined> => {
   if (!runIdValue || !itemId) return;
+  const isPdf = fileName?.toLowerCase().endsWith('.pdf') ?? false;
+  if (isPdf) {
+    // Avoid fetching the PDF as text; the preview uses the download URL directly.
+    return { itemId, runId: runIdValue, isImage: false, isPdf: true, content: '' };
+  }
+
   const res = await api.file.download({ runid: runIdValue })({ fileid: itemId }).get();
   const mime = res.response.headers.get('Content-Type') || '';
+  const isImage = mime.startsWith('image/');
   return {
     itemId,
     runId: runIdValue,
-    isImage: mime.startsWith('image'),
-    content: mime.startsWith('image') ? '' : String(res.data),
+    isImage,
+    isPdf: mime.includes('application/pdf'),
+    content: isImage || mime.includes('application/pdf') ? '' : String(res.data),
   };
 }, 'content');
 
@@ -164,7 +173,7 @@ function ActionBtn(props: {
 export default function SideDrawer() {
   const invoices = createAsync(() => getInvoiceQuery(runId()));
   const [selectedFile, setSelectedFile] = createSignal<{ id: string; name: string; vpath: string; type: 'text' | 'image' } | null>(null);
-  const content = createAsync(() => getItemContent(selectedFile()?.id || '', runId()));
+  const content = createAsync(() => getItemContent(selectedFile()?.id || '', runId(), selectedFile()?.name));
 
   const [activeMenu, setActiveMenu] = createSignal<'workspace' | 'artifact'>('workspace');
   const [isEditing, setIsEditing] = createSignal(false);
@@ -313,7 +322,7 @@ export default function SideDrawer() {
                     <ActionBtn label="DOWNLOAD" onClick={handleDownload} />
                   </Show>
 
-                  <Show when={!content()?.isImage}>
+                  <Show when={!content()?.isImage && !content()?.isPdf}>
                     <Show
                       when={isEditing()}
                       fallback={<ActionBtn label="EDIT" onClick={handleEdit} />}
@@ -364,6 +373,9 @@ export default function SideDrawer() {
                 >
                   {(c) => (
                     <Show
+                      when={c.isPdf}
+                      fallback={
+                    <Show
                       when={c.isImage}
                       fallback={
                         <Show
@@ -382,6 +394,14 @@ export default function SideDrawer() {
                       }
                     >
                       <ImagePreview src={`${BASE_URL}/api/file/download/${c.runId}/${c.itemId}`} />
+                    </Show>
+                      }
+                    >
+                      <iframe
+                        title={`PDF preview: ${selectedFile()?.name ?? "PDF"}`}
+                        src={`${BASE_URL}/api/file/download/${c.runId}/${c.itemId}`}
+                        class="w-full h-full rounded-lg border border-base-300 bg-base-100"
+                      />
                     </Show>
                   )}
                 </Show>
