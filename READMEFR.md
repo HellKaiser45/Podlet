@@ -90,7 +90,8 @@ Vous pouvez le personnaliser avant ou après cette première copie :
     "path": "podlet.db"
   },
   "features": {
-    "safemode": false
+    "safemode": false,
+    "vision": { "enabled": true, "max_live_images": 4, "max_bytes_per_request": 10485760, "max_edge": 1568, "max_images_per_call": 4 }
   }
 }
 ```
@@ -105,6 +106,11 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 | `server.webPort` | nombre | `3002` | Port de l'interface web (natif uniquement). Détermine aussi l'origine CORS. |
 | `database.path` | chaîne | `"podlet.db"` | Nom du fichier SQLite dans `~/.podlet`. |
 | `features.safemode` | booléen | `false` | Validation humaine (Human-in-the-Loop) pour les appels d'outils destructeurs. |
+| `features.vision.enabled` | booléen | `true` | Interrupteur global de l'outil de lecture d'images. |
+| `features.vision.max_live_images` | nombre | `4` | Nombre d'images pouvant figurer dans une même requête au modèle. |
+| `features.vision.max_bytes_per_request` | nombre | `10485760` | Plafond total de la charge utile d'images par requête, en octets. |
+| `features.vision.max_edge` | nombre | `1568` | Bord le plus long utilisé lors du redimensionnement d'une image avant envoi. |
+| `features.vision.max_images_per_call` | nombre | `4` | Nombre d'images qu'un appel `see_image` peut demander. |
 
 **Règles de port selon le mode :**
 

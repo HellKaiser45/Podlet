@@ -3,6 +3,7 @@ import type { AgentRequest, AgentStreamEvent, LiteLLMStreamedChunk, ThinkingAnth
 import AppContainer from './runtime';
 import { CoreToolsManager } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
+import { hydrateVisionHistory } from './system/vision-hydrate';
 
 export class AgentClient {
   private readonly streamEndpoint = '/chat/stream'
@@ -22,7 +23,12 @@ export class AgentClient {
       ...await this.appContainer.agentToolsManager.getAgentAsToolDefinition(agent.subAgents || []),
     ];
 
-    const cleanedTools = tools.map((tool: any) => {
+    const visionEnabled = this.appContainer.initConfig.vision?.enabled !== false;
+    const gatedTools = visionEnabled
+      ? tools
+      : tools.filter((tool: any) => tool?.function?.name !== 'see_image');
+
+    const cleanedTools = gatedTools.map((tool: any) => {
       if (tool?.type === "function" && tool.function) {
         return { ...tool, function: { ...tool.function, strict: false } };
       }
@@ -31,6 +37,8 @@ export class AgentClient {
 
     const systemPrompt = await this.appContainer.skillManager.injectSkills(agent.skills || [], await this.appContainer.agentManager.getAgentprompt(agentId), vfileSystem);
     const updatedSystemPrompt = await vfileSystem.getContextTree()
+
+    const hydrated = await hydrateVisionHistory(history, vfileSystem, this.appContainer.initConfig.vision);
 
     return {
       provider: model.provider,
@@ -41,7 +49,7 @@ export class AgentClient {
       reasoning_effort: model.reasoning_effort ?? undefined,
       base_url: model.base_url ?? undefined,
       system_prompt: systemPrompt + `\n\n` + updatedSystemPrompt,
-      history: history as AgentRequest['history'],
+      history: hydrated as AgentRequest['history'],
       tools: cleanedTools.length > 0 ? cleanedTools : undefined,
       response_format: agent.response_format,
     }

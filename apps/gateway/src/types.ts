@@ -6,7 +6,8 @@ import type {
   ChatCompletionMessageToolCall,
   ChatCompletionMessageParam,
   ChatCompletionAssistantMessageParam,
-  ChatCompletionUserMessageParam
+  ChatCompletionUserMessageParam,
+  ChatCompletionContentPart
 } from "@podlet/types";
 
 import type { RunFinishedEvent as AGUIRunFinishedEvent, AGUIEvent } from "@ag-ui/core";
@@ -82,7 +83,7 @@ export interface AgentRequest {
   provider: string;
   model: string;
   system_prompt: string;
-  history: Array<{ role: string; content: string;[key: string]: any }>;
+  history: Array<{ role: string; content: string | ChatCompletionContentPart[];[key: string]: any }>;
 
   // Environment/Config
   configpath: string;

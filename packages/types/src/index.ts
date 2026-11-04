@@ -24,7 +24,22 @@ export interface ConfigFile {
   };
   features?: {
     safemode?: boolean;
+    vision?: {
+      enabled?: boolean;
+      max_live_images?: number;
+      max_bytes_per_request?: number;
+      max_edge?: number;
+      max_images_per_call?: number;
+    };
   };
+}
+
+export interface VisionSettings {
+  enabled: boolean;
+  max_live_images: number;
+  max_bytes_per_request: number;
+  max_edge: number;
+  max_images_per_call: number;
 }
 
 export interface AppConfig {
@@ -38,4 +53,5 @@ export interface AppConfig {
   dbPath: string;
   corsOrigin: string;
   safemode: boolean;
+  vision: VisionSettings;
 }

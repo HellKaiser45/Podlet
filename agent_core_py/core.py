@@ -88,6 +88,41 @@ class AgentConstructor:
             return True
         return bool(cfg.base_url and "opencode.ai" in cfg.base_url)
 
+    def _strip_image_parts(self, messages: list[dict]) -> list[dict]:
+        """Return a copy of ``messages`` with image payloads removed.
+
+        Hydrated ``see_image`` results put the full base64 image data into
+        ``user`` message content arrays. Hashing several MB of base64 into the
+        cache-key fingerprint on every request is wasteful, and identical text
+        would otherwise produce different keys purely because the pixels
+        differ. We keep the ``image_url`` part's *arity* (so adding an image
+        still changes the key) but drop the payload.
+
+        This sha256 fingerprint feeds litellm's ``cache_key``; the response
+        cache itself is ``caching=True`` with ``ttl=600``. So the key should
+        change exactly when the conversation changes, not when the bytes of a
+        re-sent image change.
+
+        Only the fingerprint uses this; the real ``messages`` sent to litellm
+        are never modified.
+        """
+        stripped: list[dict] = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                new_content = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        new_content.append(
+                            {"type": "image_url", "image_url": {"url": "<image>"}}
+                        )
+                    else:
+                        new_content.append(part)
+                stripped.append({**msg, "content": new_content})
+            else:
+                stripped.append(msg)
+        return stripped
+
     def _build_cache_key(self, messages: list[dict]) -> str:
         """Composite cache key: conversation id + message-content fingerprint.
 
@@ -105,7 +140,9 @@ class AgentConstructor:
         with no hashing and no internal collision risk.
         """
         fingerprint = hashlib.sha256(
-            json.dumps(messages, sort_keys=True, default=str).encode("utf-8")
+            json.dumps(
+                self._strip_image_parts(messages), sort_keys=True, default=str
+            ).encode("utf-8")
         ).hexdigest()[:16]
         return f"{self._conversation_id}:{fingerprint}"
 

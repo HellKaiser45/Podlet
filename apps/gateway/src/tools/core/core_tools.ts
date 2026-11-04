@@ -1,5 +1,6 @@
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
 import { VirtualFileSystem } from '../../system/sandbox';
+import { prepareImage, normaliseMime, type PreparedImage } from '../../system/vision';
 import { mkdir } from 'node:fs/promises';
 
 interface ITool {
@@ -21,6 +22,23 @@ const BINARY_EXTENSIONS = new Set([
   '.mp4', '.mp3', '.wav', '.ogg', '.zip', '.tar', '.gz', '.bin', '.exe',
 ]);
 
+// Image extensions readable by the vision pipeline (see_image)
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
+]);
+
+// Extensions actually decoded by see_image
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+
+type ImageDetail = 'auto' | 'high';
+const DETAIL_MAX_EDGE: Record<ImageDetail, number> = { auto: 1568, high: 2576 };
+
 // ---------------------------------------------------------------------------
 // ReadFileTool
 // ---------------------------------------------------------------------------
@@ -39,7 +57,7 @@ class ReadFileTool implements ITool {
         '',
         'Reads one or more files from the virtual filesystem in parallel.',
         'Returns a JSON object mapping each virtual path to its text content.',
-        'DO NOT use for binary/media files (.png, .jpg, .pdf, .woff, .mp4, etc.).',
+        'DO NOT use for binary/media files — use see_image to view an image.',
       ].join('\n'),
       parameters: {
         type: 'object',
@@ -66,6 +84,9 @@ class ReadFileTool implements ITool {
     const entries = await Promise.all(
       paths.map(async (p): Promise<[string, string]> => {
         const ext = p.slice(p.lastIndexOf('.')).toLowerCase();
+        if (IMAGE_EXTENSIONS.has(ext)) {
+          return [p, `error: cannot read binary file "${p}" (${ext}) — use see_image to view it`];
+        }
         if (UNREADABLE_EXTENSIONS.has(ext)) {
           return [p, `error: cannot read binary file "${p}" (${ext})`];
         }
@@ -407,6 +428,155 @@ class StageFilesTool implements ITool {
 }
 
 // ---------------------------------------------------------------------------
+// SeeImageTool
+// ---------------------------------------------------------------------------
+
+interface SeeImageReceipt {
+  vpath: string;
+  id: string;
+  sha: string;
+  source: { mime: string; width: number; height: number; bytes: number };
+  rendered: {
+    mime: string;
+    width: number;
+    height: number;
+    bytes: number;
+    max_edge: number;
+    format: 'png' | 'jpeg';
+    crop: { x: number; y: number; width: number; height: number; unit: 'px' | 'fraction' } | null;
+  };
+  tokens_est: number;
+  dropped_from_context: boolean;
+}
+
+class SeeImageTool implements ITool {
+  readonly name = 'see_image';
+  private vfs?: VirtualFileSystem;
+
+  readonly definition: ChatCompletionTool = {
+    type: 'function',
+    function: {
+      name: 'see_image',
+      description: [
+        'ALWAYS use this tool to look at an image (.png .jpg .jpeg .webp .gif) in workspace:// or artifacts://.',
+        'NEVER use read_file or execute_shell for images — read_file refuses binary files and shell output is text.',
+        '',
+        'The images are attached to the conversation; you will see them after this call returns.',
+        'Call again with `crop` to zoom into a region instead of re-reading the whole image.',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          paths: {
+            type: 'array',
+            description: 'One or more virtual image paths to look at (e.g. workspace://screenshots/home.png, artifacts://out/chart.jpg)',
+            items: { type: 'string' },
+            minItems: 1,
+            maxItems: 4,
+          },
+          detail: {
+            type: 'string',
+            enum: ['auto', 'high'],
+            description: 'auto = 1568px long edge (~1.1k tokens, default); high = up to 2576px long edge for dense UI text, ~3-5x the tokens.',
+          },
+          crop: {
+            type: 'object',
+            description: 'Zoom into a region of the image. `fraction` (0..1 of the image) is the safer default — it survives different image sizes and render scales.',
+            properties: {
+              x: { type: 'number', description: 'Left offset of the region.' },
+              y: { type: 'number', description: 'Top offset of the region.' },
+              width: { type: 'number', description: 'Width of the region.' },
+              height: { type: 'number', description: 'Height of the region.' },
+              unit: {
+                type: 'string',
+                enum: ['px', 'fraction'],
+                description: 'Interpretation of x/y/width/height. `fraction` is 0..1 of the image; `px` is source pixels.',
+              },
+            },
+            required: ['x', 'y', 'width', 'height', 'unit'],
+          },
+        },
+        required: ['paths'],
+      },
+    },
+  };
+
+  constructor(vfs?: VirtualFileSystem) { this.vfs = vfs; }
+  setVfs(vfs: VirtualFileSystem) { this.vfs = vfs; }
+
+  async execute(
+    args: Record<string, unknown>
+  ): Promise<{ ok: boolean; images: SeeImageReceipt[]; errors: string[] }> {
+    const paths = args.paths as string[] | undefined;
+    if (!paths || paths.length === 0) throw new Error('Missing required argument: paths');
+    if (!this.vfs) return { ok: false, images: [], errors: ['VirtualFileSystem not initialized'] };
+
+    const detail = (args.detail as ImageDetail | undefined) ?? 'auto';
+    const maxEdge = DETAIL_MAX_EDGE[detail] ?? DETAIL_MAX_EDGE.auto;
+    const crop = args.crop as { x: number; y: number; width: number; height: number; unit: 'px' | 'fraction' } | undefined;
+
+    const images: SeeImageReceipt[] = [];
+    const errors: string[] = [];
+
+    await Promise.all(
+      paths.map(async (p): Promise<void> => {
+        try {
+          const realPath = this.vfs!.virtualToReal(p);
+          const file = Bun.file(realPath);
+          if (!(await file.exists())) {
+            errors.push(`${p}: file not found`);
+            return;
+          }
+
+          const ext = p.slice(p.lastIndexOf('.')).toLowerCase();
+          const mime = IMAGE_MIME_BY_EXT[ext];
+          if (!mime) {
+            errors.push(`${p}: unsupported image type "${ext.replace(/^\./, '')}" (supported: png, jpg, jpeg, webp, gif)`);
+            return;
+          }
+
+          const sourceBytes = new Uint8Array(await file.arrayBuffer());
+          const prepared = await prepareImage(sourceBytes, normaliseMime(mime), { maxEdge, crop });
+
+          if ('ok' in prepared && (prepared as { ok: false }).ok === false) {
+            errors.push(`${p}: ${(prepared as { reason: string }).reason}`);
+            return;
+          }
+
+          const image = prepared as PreparedImage;
+          images.push({
+            vpath: p,
+            id: Buffer.from(p).toString('base64url'),
+            sha: image.sha,
+            source: {
+              mime,
+              width: image.sourceWidth,
+              height: image.sourceHeight,
+              bytes: sourceBytes.byteLength,
+            },
+            rendered: {
+              mime: image.mime,
+              width: image.width,
+              height: image.height,
+              bytes: image.bytes.byteLength,
+              max_edge: maxEdge,
+              format: image.mime === 'image/jpeg' ? 'jpeg' : 'png',
+              crop: crop ?? null,
+            },
+            tokens_est: image.tokensEst,
+            dropped_from_context: false,
+          });
+        } catch (err) {
+          errors.push(`${p}: ` + this.vfs!.sanitizeErrorMessage(err));
+        }
+      })
+    );
+
+    return { ok: images.length > 0, images, errors };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CoreToolsManager
 // ---------------------------------------------------------------------------
 
@@ -420,6 +590,7 @@ export class CoreToolsManager {
   private readonly writeFileTool = new WriteFileTool();
   private readonly applyDiffTool = new ApplyDiffTool();
   private readonly stageFilesTool = new StageFilesTool();
+  private readonly seeImageTool = new SeeImageTool();
 
   constructor(virtualFileSystem?: VirtualFileSystem) {
     // Always register ALL tools so getToolDefinitions() works without VFS
@@ -429,6 +600,7 @@ export class CoreToolsManager {
       [this.writeFileTool.name, this.writeFileTool],
       [this.applyDiffTool.name, this.applyDiffTool],
       [this.stageFilesTool.name, this.stageFilesTool],
+      [this.seeImageTool.name, this.seeImageTool],
     ]);
 
     if (virtualFileSystem) this.setVirtualFileSystem(virtualFileSystem);

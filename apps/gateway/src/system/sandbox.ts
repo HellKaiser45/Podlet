@@ -427,7 +427,7 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 3. Never emit real filesystem paths (\`/etc\`, \`~\`, \`../\`, URLs, etc.).
 4. \`workspace://\` is **read-only**. Never write to it.
 5. \`artifacts://\` is your **write space**. All files you produce go here.
-6. DO NOT read image files (.png, .gif, .jpeg, etc.) — they will break your context.
+6. To look at an image (.png, .jpg, .jpeg, .webp, .gif), use see_image. read_file cannot read images.
 
 **If a file you need does not appear in the tree: stop and tell the user. Do not speculate.**
 
@@ -436,6 +436,7 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 | Goal                              | Tool to use       | NEVER use                          |
 |-----------------------------------|-------------------|------------------------------------|
 | Read a file                       | read_file         | cat, head, tail, grep, shell       |
+| Look at an image (.png .jpg .jpeg .webp .gif) | see_image | read_file, execute_shell, base64 in a text file |
 | Create or fully overwrite a file  | write_file        | echo, tee, printf, heredoc, shell  |
 | Edit part of an existing file     | apply_diff        | sed, awk, patch, shell             |
 | Copy workspace file for editing   | stage_files       | cp via shell                       |
@@ -444,6 +445,7 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 ## Schemes
 - **workspace://** — User-provided input files. Read-only source of truth.
 - **artifacts://** — Your working output space. Write all produced files here.
+- Images are attached to the conversation after a see_image call — the receipt you get back is metadata only, so do not try to read the pixels back out of it.
 
 ## Path format
 Paths must be \`scheme://relative/path/to/file\` — no leading slash after the scheme.
