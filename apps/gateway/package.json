@@ -2,7 +2,7 @@
   "name": "@podlet/gateway",
   "version": "1.0.50",
   "scripts": {
-    "test": "bun test apps/gateway/test/api-no-hill.test.ts",
+    "test": "bun test",
     "dev": "bun run --watch src/start_prod_server.ts"
   },
   "dependencies": {
