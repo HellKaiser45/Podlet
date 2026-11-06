@@ -1,0 +1,93 @@
+PODLET ROADMAP
+==============
+size: XS <1h | S <0.5d | M 1-2d | L multi-day
+priority: P0 blocking | P1 high | P2 quality | P3 later
+
+SECURITY
+--------
+P0  XS   resolveWithin(): containment check on path resolve                sandbox.ts
+P0  XS   reject skills/ writes in updateFile                              files.ts
+P0  XS   upload(): basename() the filename                                sandbox.ts
+P0  XS   shell: drop inherited process.env, allowlist only                core_tools.ts
+P0  XS   HIL: gate apply_diff + stage_files                               hil-manager.ts
+P0  XS   auth token OR bind 127.0.0.1 by default                          config.ts
+P0  XS   python: CORS allow_origins=["*"] + allow_credentials=True        main.py
+P0  S    delete validatePaths + heredoc/URL/abspath regexes               sandbox.ts
+
+CRASH / CORRECTNESS
+-------------------
+P0  XS   guard eventManager[runId]                                        orchestrator.ts
+P0  XS   null-check mcps[id] in getTools + startserver                    mcp/client.ts
+P0  M    run supervisor: catch -> status=error -> RUN_ERROR, never throw  chat-loop.ts
+P1  XS   SSE decoder {stream:true}                                        agent_client.ts
+P1  XS   detectnewleaf: handle error/running states                       orchestrator.ts
+P1  XS   frame delete race during execute                                 orchestrator.ts
+P1  XS   types.ts signature: "string" -> string                           types.ts
+P1  XS   toAgentStackFrame: drop status cast                              db_client.ts
+P1  XS   getByStatus: explicit lambda not unbound method                  db_client.ts
+P1  XS   sqlite PRAGMA WAL + busy_timeout                                 db.ts
+P1  XS   conversation title: lock after rename                            db/history
+P1  XS   duplicate CoreToolsManager instance                              agent_client.ts
+P1  XS   core.py: omit api_key kwarg when env unset                       core.py
+P1  XS   DEFAULT_MAX_ITERATIONS 1000 -> 25                                types.ts
+P1  XS   litellm: explicit request_timeout + num_retries                  core.py
+P1  S    restartLeaves -> worklist loop, no recursion                     orchestrator.ts
+P2  XS   buildMessage: don't drop tool calls without id                   agent_client.ts
+
+STREAMING / LONG RUNS
+---------------------
+P1  S    SSE heartbeat on the wire (not to log file)                      stream_handler.ts
+P1  M    event log w/ sequence + GET /api/runs/:id/stream?since=          stream_handler.ts
+P1  M    client: Map<runId, EventSource>, no close on navigation          chat.store.ts
+P1  M    subagent: close parent stream, suspend, resume                   chat-loop.ts
+
+CONTEXT ECONOMY
+---------------
+P1  M    token/usage accounting per msg + per run + per subagent          agent_client.ts
+P1  M    kill tree injection; add glob + grep tools                       sandbox.ts
+P2  S    read_file offset/limit + truncation notice                       core_tools.ts
+P2  M    image: prepare-once on read, LRU base64, evict oldest            vision-hydrate.ts
+P2  XS   delete max_bytes_per_request after above                         vision-hydrate.ts
+P2  XS   delete response cache from core.py                               core.py
+
+VFS  <-- CHANGE #1
+------------------
+P1  XS   resolveWithin + 3 explicit roots (workspace/artifacts/skills)    sandbox.ts
+P1  S    drop scheme:// -> relative paths artifacts/x workspace/bar       sandbox.ts
+P1  S    run root <podletDir>/runs/<runId>, artifacts/ inside             sandbox.ts
+P1  XS   shell cwd = run root, stable pwd                                 core_tools.ts
+P1  S    files-routes: plain paths, keep base64url decode 1 release       files-routes.ts
+P1  S    frontend emits relative paths                                    file-tree.ts
+P1  XS   prompt states roots + cwd once                                   orchestrator.md
+P1  S    tests: ../, absolute, symlink, round-trip                        test/
+
+CLEANUP / THINNING
+------------------
+P2  XS   delete Agenthud.tsx (505)                                        web/routes
+P2  XS   delete writing-chat.tsx (174)                                    web/components
+P2  XS   delete data-vault.tsx (688)                                      web/components
+P2  XS   delete inventory/+inventory-store (150)                          web
+P2  XS   delete dead db/manager methods (~250)                            gateway
+P2  XS   delete PROCESSING_RESPONSE, HILConfig, empty if block            gateway
+P2  XS   delete agent-events.log writer                                   stream_handler.ts
+P2  XS   consolidate 3x containment into one helper                       gateway
+P3  M    generic CRUD route factory (6 files -> 1)                        api-routes
+P3  M    trim redundant comments (~400)                                   gateway
+
+DOCKER / DOCS
+-------------
+P2  XS   compose.yml: --user, no ~/.ssh, no full env, workspace ro         compose.yml
+P2  XS   README prereqs + native = trusted shell statement                README.md
+P2  XS   GC: orphaned run dirs AND containers                             sandbox.ts
+
+FEATURES
+--------
+P1  M    MCP over HTTPS (Streamable HTTP transport)                       mcp/client.ts
+P2  M    CLI: podlet run / --detach / runs tail                           new
+P3  L    async child agents                                               gateway
+     -    DECISION: bounded tree vs no tree injection
+
+DEFERRED (rejected)
+-------------------
+-   nested docker / DinD per run         (socket = host root, second image)
+-   host tmp/ under run root              (container /tmp suffices)
