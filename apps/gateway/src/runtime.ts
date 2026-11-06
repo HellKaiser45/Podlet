@@ -16,6 +16,7 @@ import { AgentEventStream } from "./stream_handler";
 import { HilManager } from "./hil/hil-manager";
 import { HistoryCRUDClient } from "./db/db_history_client";
 import PromptsManager from "./system/prompts";
+import { applyEnvFile } from "./system/env";
 
 export default class AppContainer {
   frameCRUD: FrameCRUDClient;
@@ -51,6 +52,13 @@ export default class AppContainer {
 
   async init() {
     await createfilesystem(this.initConfig.podletDir)
+
+    // Before modelManager.init(): classification reads process.env, so the
+    // `.env` stub has to be in the environment first. Malformed lines are
+    // reported here exactly like the watcher path does, so a bad `.env` never
+    // fails silently at boot.
+    const { warnings } = await applyEnvFile(this.initConfig.podletDir)
+    for (const w of warnings) console.error(`[env] ${w}`)
 
     await this.collectOrphanedRunDirs()
 
@@ -130,6 +138,15 @@ export default class AppContainer {
     this.watchers.push(
       watch(join(this.initConfig.podletDir, 'agents'), { recursive: true },
         this.debounce('agents', async () => await this.agentManager.reload(), 500))
+    );
+
+    this.watchers.push(
+      watch(join(this.initConfig.podletDir, '.env'),
+        this.debounce('env', async () => {
+          const { warnings } = await applyEnvFile(this.initConfig.podletDir);
+          for (const w of warnings) console.error(`[env] ${w}`);
+          this.modelManager.refreshHealth();
+        }, 500))
     );
   }
 

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolveModel } from '../apps/gateway/src/system/providers';
+import { applyEnvFile } from '../apps/gateway/src/system/env';
 
 /**
  * Upgrade `models.json` to the current schema, then show what still needs a
@@ -41,7 +42,11 @@ function isPlainObject(value: unknown): value is Entry {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function main(): number {
+async function main(): Promise<number> {
+  // Keys may live only in `.env`: classification below reads process.env.
+  const { warnings } = await applyEnvFile(podletDir);
+  for (const warning of warnings) console.error(`[env] ${warning}`);
+
   console.log('');
   console.log(`  models.json: ${modelsPath}`);
   console.log(`  mode:        ${write ? 'write' : 'dry-run (pass --write to apply)'}`);
@@ -170,4 +175,9 @@ function main(): number {
   return unusable > 0 ? 1 : 0;
 }
 
-process.exit(main());
+main()
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    console.error(`  models:upgrade failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });

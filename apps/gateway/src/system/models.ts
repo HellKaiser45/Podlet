@@ -92,6 +92,11 @@ export default class ModelsManager {
     return resolved;
   }
 
+  /** Recompute health against the current process env (e.g. after .env changed). */
+  refreshHealth(env: Record<string, string | undefined> = process.env): void {
+    this.reclassify(env, true);
+  }
+
   async create(name: string, config: ModelConfig): Promise<ModelConfig> {
     return this.serialQueue.enqueue(async () => {
       if (this.models[name]) {
