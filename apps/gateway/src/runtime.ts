@@ -66,15 +66,17 @@ export default class AppContainer {
   }
 
   /**
-   * Startup garbage collection: delete workspace/artifacts subdirectories
-   * whose runId has no matching run_history row (e.g. chats that were opened
-   * but never received a first message). Only UUID-shaped directory names are
-   * considered, so any non-run folder placed there deliberately is never touched.
+   * Startup garbage collection: delete per-run directories under workspace/,
+   * artifacts/ and runs/ whose runId has no matching run_history row (e.g. chats
+   * that were opened but never received a first message). Only UUID-shaped
+   * directory names are considered, so any non-run folder placed there
+   * deliberately is never touched. The workspace/ and artifacts/ sweeps also
+   * collect leftovers from the pre-run-root layout.
    */
   private async collectOrphanedRunDirs(): Promise<void> {
     const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    for (const schemeDir of ['workspace', 'artifacts']) {
+    for (const schemeDir of ['workspace', 'artifacts', 'runs']) {
       const dirPath = join(this.initConfig.podletDir, schemeDir);
 
       let entries;

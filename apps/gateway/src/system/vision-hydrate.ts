@@ -192,7 +192,7 @@ export async function hydrateVisionHistory(
       const vpath = receipt.vpath;
       let bytes: Uint8Array;
       try {
-        const realPath = vfs.virtualToReal(vpath);
+        const realPath = vfs.resolveVirtual(vpath);
         const file = Bun.file(realPath);
         if (!(await file.exists())) {
           lines.push(`${vpath}: file no longer exists — call see_image again`);

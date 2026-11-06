@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import type { SkillFrontmatter, Skillneeded } from "../types.js";
 import { YAML } from "bun";
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { VirtualFileSystem } from "./sandbox.js"
 
 
@@ -81,6 +81,7 @@ export default class SkillsManager {
   }
 
   async injectSkills(skillname: string[], systemprompt: string, vfs: VirtualFileSystem): Promise<string> {
+    void vfs
     const validEntries: { skill: Skillneeded; skillDirVpath: string; skillEntryVpath: string }[] = []
     for (const name of skillname) {
       if (!this.availableSkills[name]) {
@@ -88,7 +89,9 @@ export default class SkillsManager {
         continue
       }
       const skill = this.availableSkills[name]
-      const skillDirVpath = vfs.realToVirtual(skill.location)
+      // Skill paths are relative to the run root: `skills/<skill dir>/SKILL.md`.
+      const relDir = relative(this.filepath, skill.location).split(sep).join('/')
+      const skillDirVpath = `skills/${relDir}`
       const skillEntryVpath = `${skillDirVpath}/SKILL.md`
       validEntries.push({ skill, skillDirVpath, skillEntryVpath })
     }
@@ -107,13 +110,13 @@ RULES:
 EXAMPLES:
 
 User asks: "Create a PowerPoint presentation"
-Skill match: pptx-generator with <location>skills://pptx/SKILL.md</location>
-Your FIRST action: read_file({ paths: ["skills://pptx/SKILL.md"] })
+Skill match: pptx-generator with <location>skills/pptx/SKILL.md</location>
+Your FIRST action: read_file({ paths: ["skills/pptx/SKILL.md"] })
 Then follow the instructions returned.
 
 User asks: "Review my code for security issues"
-Skill match: code-reviewer with <location>skills://code-reviewer/SKILL.md</location>
-Your FIRST action: read_file({ paths: ["skills://code-reviewer/SKILL.md"] })
+Skill match: code-reviewer with <location>skills/code-reviewer/SKILL.md</location>
+Your FIRST action: read_file({ paths: ["skills/code-reviewer/SKILL.md"] })
 Then follow the instructions returned.
 
 NEVER skip reading a relevant skill. The cost of reading an irrelevant skill is minimal. The cost of skipping a relevant one is a degraded result. NO EXCEPTIONS.

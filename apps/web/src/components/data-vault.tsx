@@ -124,15 +124,15 @@ export function DataVault(props: DataVaultProps) {
     if (f === "all") return all;
     return all.filter((fi) =>
       f === "artifacts"
-        ? fi.vpath.startsWith("artifacts://")
-        : !fi.vpath.startsWith("artifacts://")
+        ? fi.vpath.startsWith("artifacts/")
+        : !fi.vpath.startsWith("artifacts/")
     );
   };
 
   const countWS = () =>
-    files().filter((f) => !f.vpath.startsWith("artifacts://")).length;
+    files().filter((f) => !f.vpath.startsWith("artifacts/")).length;
   const countArt = () =>
-    files().filter((f) => f.vpath.startsWith("artifacts://")).length;
+    files().filter((f) => f.vpath.startsWith("artifacts/")).length;
 
   // ── Select file ──
 

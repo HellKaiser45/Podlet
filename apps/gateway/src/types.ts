@@ -200,8 +200,7 @@ export interface MCPServerConfig {
 //===================================================================================
 // File system related types
 // ==================================================================================
-export const VIRTUAL_SCHEMES = ["workspace://", "artifacts://", "skills://"] as const;
-export type VirtualScheme = (typeof VIRTUAL_SCHEMES)[number];
+
 
 
 

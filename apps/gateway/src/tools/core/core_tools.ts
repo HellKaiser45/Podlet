@@ -1,7 +1,6 @@
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
-import { VirtualFileSystem } from '../../system/sandbox';
+import { VirtualFileSystem, resolveWithin } from '../../system/sandbox';
 import { prepareImage, normaliseMime, type PreparedImage } from '../../system/vision';
-import { mkdir } from 'node:fs/promises';
 
 interface ITool {
   name: string;
@@ -55,8 +54,8 @@ class ReadFileTool implements ITool {
         'ALWAYS use this tool to read file contents.',
         'NEVER use cat, head, tail, grep, or any shell command to read files — use this tool instead.',
         '',
-        'Reads one or more files from the virtual filesystem in parallel.',
-        'Returns a JSON object mapping each virtual path to its text content.',
+        'Reads one or more files in parallel.',
+        'Returns a JSON object mapping each relative path to its text content.',
         'DO NOT use for binary/media files — use see_image to view an image.',
       ].join('\n'),
       parameters: {
@@ -64,7 +63,7 @@ class ReadFileTool implements ITool {
         properties: {
           paths: {
             type: 'array',
-            description: 'One or more virtual file paths to read (e.g. workspace://src/main.ts, artifacts://out/report.md)',
+            description: 'One or more relative file paths to read (e.g. workspace/src/main.ts, artifacts/out/report.md)',
             items: { type: 'string' },
             minItems: 1,
           },
@@ -91,7 +90,7 @@ class ReadFileTool implements ITool {
           return [p, `error: cannot read binary file "${p}" (${ext})`];
         }
         try {
-          const realPath = this.vfs!.virtualToReal(p);
+          const realPath = this.vfs!.resolveVirtual(p);
           const file = Bun.file(realPath);
           if (!(await file.exists())) return [p, `error: file not found`];
           return [p, await file.text()];
@@ -131,10 +130,10 @@ class ShellTool implements ITool {
         'NEVER use cat, echo, tee, sed, awk, patch, or similar to handle file content.',
         '',
         'RULES:',
-        '- working_directory must be a virtual path (workspace://, artifacts://, skills://)',
-        '- Inside commands, use RELATIVE paths only — working_directory is treated as your root',
-        '- Never use absolute paths like /tmp, /home, /var — they bypass the sandbox',
-        '- Shell output may leak real filesystem paths — always continue using virtual paths in follow-up tool calls',
+        '- The cwd is your run root: `cat workspace/foo` and `cat artifacts/foo` both just work',
+        '- All paths are relative to the run root and start with workspace/, artifacts/ or skills/',
+        '- Absolute paths (/tmp, /etc, ~) are rejected',
+        '- Shell output may leak real filesystem paths — always continue using relative paths in follow-up tool calls',
         '',
         'NOT FOR: long-running servers, interactive commands (vim/ssh), watch modes, background processes.',
         'Timeout: default 30s, max 300s.',
@@ -148,7 +147,7 @@ class ShellTool implements ITool {
           },
           working_directory: {
             type: 'string',
-            description: 'Virtual path for the working directory (workspace://, artifacts://, skills://)',
+            description: 'Optional directory inside the run root to run in (e.g. artifacts). Defaults to the run root.',
           },
           timeout: {
             type: 'number',
@@ -157,22 +156,29 @@ class ShellTool implements ITool {
             maximum: 300,
           },
         },
-        required: ['command', 'working_directory'],
+        required: ['command'],
       },
     },
   };
 
-  // Shell does not need VFS directly (manager resolves args before passing)
+  private vfs?: VirtualFileSystem;
+  setVfs(vfs: VirtualFileSystem) { this.vfs = vfs; }
+
   async execute(args: Record<string, any>): Promise<ShellExecutionResult> {
     const { command, working_directory, timeout = 30 } = args;
     const startTime = Date.now();
     let timedOut = false;
 
     try {
-      await mkdir(working_directory, { recursive: true });
+      const runRoot = this.vfs?.runRoot;
+      if (!runRoot) throw new Error('VirtualFileSystem not initialized');
+
+      const cwd = typeof working_directory === 'string' && working_directory.trim() !== ''
+        ? resolveWithin(runRoot, working_directory)
+        : runRoot;
 
       const proc = Bun.spawn(['bash', '-c', command], {
-        cwd: working_directory,
+        cwd,
         stdout: 'pipe',
         stderr: 'pipe',
         env: {
@@ -224,7 +230,7 @@ class WriteFileTool implements ITool {
         'ALWAYS use this tool to create new files or completely overwrite existing ones.',
         'NEVER use echo, tee, printf, heredoc, or any shell command to write file content.',
         '',
-        'Only writes to artifacts:// — workspace:// is read-only.',
+        'Only writes to artifacts/ — workspace/ and skills/ are read-only.',
         'For small targeted edits to existing files, use apply_diff instead (more token-efficient).',
       ].join('\n'),
       parameters: {
@@ -232,7 +238,7 @@ class WriteFileTool implements ITool {
         properties: {
           path: {
             type: 'string',
-            description: 'Virtual path in artifacts:// (e.g. artifacts://src/main.ts). No leading slash after the scheme.',
+            description: 'Relative path under artifacts/ (e.g. artifacts/src/main.ts). No leading slash.',
           },
           content: {
             type: 'string',
@@ -301,14 +307,14 @@ class ApplyDiffTool implements ITool {
         'More token-efficient than write_file for small changes.',
         'Finds exact text matches and replaces them sequentially.',
         'Include 3+ surrounding context lines in "search" to guarantee a unique match.',
-        'Only works on artifacts:// files.',
+        'Only works on artifacts/ files.',
       ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Virtual path in artifacts:// (e.g. artifacts://src/main.ts).',
+            description: 'Relative path under artifacts/ (e.g. artifacts/src/main.ts).',
           },
           diffs: {
             type: 'array',
@@ -393,9 +399,9 @@ class StageFilesTool implements ITool {
     function: {
       name: 'stage_files',
       description: [
-        'Copy files from read-only workspace:// to writable artifacts://, preserving directory structure.',
-        'ALWAYS call this before editing any workspace:// file — it creates the editable copy you can then modify with write_file or apply_diff.',
-        'Files already staged in artifacts:// are skipped safely.',
+        'Copy files from read-only workspace/ to writable artifacts/, preserving directory structure.',
+        'ALWAYS call this before editing any workspace/ file — it creates the editable copy you can then modify with write_file or apply_diff.',
+        'Files already staged in artifacts/ are skipped safely.',
         'Accepts individual files or entire directories.',
       ].join('\n'),
       parameters: {
@@ -403,10 +409,10 @@ class StageFilesTool implements ITool {
         properties: {
           paths: {
             type: 'array',
-            description: 'workspace:// paths to copy to artifacts:// (files or directories)',
+            description: 'workspace/ paths to copy to artifacts/ (files or directories)',
             items: {
               type: 'string',
-              description: 'e.g. workspace://src/components/App.tsx or workspace://src/',
+              description: 'e.g. workspace/src/components/App.tsx or workspace/src/',
             },
             minItems: 1,
           },
@@ -458,7 +464,7 @@ class SeeImageTool implements ITool {
     function: {
       name: 'see_image',
       description: [
-        'ALWAYS use this tool to look at an image (.png .jpg .jpeg .webp .gif) in workspace:// or artifacts://.',
+        'ALWAYS use this tool to look at an image (.png .jpg .jpeg .webp .gif) in workspace/ or artifacts/.',
         'NEVER use read_file or execute_shell for images — read_file refuses binary files and shell output is text.',
         '',
         'The images are attached to the conversation; you will see them after this call returns.',
@@ -469,7 +475,7 @@ class SeeImageTool implements ITool {
         properties: {
           paths: {
             type: 'array',
-            description: 'One or more virtual image paths to look at (e.g. workspace://screenshots/home.png, artifacts://out/chart.jpg)',
+            description: 'One or more relative image paths to look at (e.g. workspace/screenshots/home.png, artifacts/out/chart.jpg)',
             items: { type: 'string' },
             minItems: 1,
             maxItems: 4,
@@ -521,7 +527,7 @@ class SeeImageTool implements ITool {
     await Promise.all(
       paths.map(async (p): Promise<void> => {
         try {
-          const realPath = this.vfs!.virtualToReal(p);
+          const realPath = this.vfs!.resolveVirtual(p);
           const file = Bun.file(realPath);
           if (!(await file.exists())) {
             errors.push(`${p}: file not found`);
@@ -546,7 +552,7 @@ class SeeImageTool implements ITool {
           const image = prepared as PreparedImage;
           images.push({
             vpath: p,
-            id: Buffer.from(p).toString('base64url'),
+            id: p,
             sha: image.sha,
             source: {
               mime,
@@ -636,25 +642,23 @@ export class CoreToolsManager {
     // Shell needs real paths for cwd, so we resolve args before execution.
     // stdout/stderr are sanitized afterwards to strip any leaked real paths.
     if (toolName === 'execute_shell') {
-      const wd = args.working_directory as string | undefined;
-
-      if (!wd?.trim()) {
-        return this.makeShellError(toolCallId,
-          'working_directory is required. Provide a virtual path (workspace://, artifacts://, skills://).'
-        );
-      }
-
-      const validSchemes = ['workspace://', 'artifacts://', 'skills://'];
-      if (!validSchemes.some(s => wd.startsWith(s))) {
-        return this.makeShellError(toolCallId,
-          `working_directory must start with workspace://, artifacts://, or skills://. Received: "${wd}"`
-        );
-      }
-
       if (!this.vfs) return this.makeShellError(toolCallId, 'VirtualFileSystem not initialized');
 
-      // Resolve virtual paths → real paths so the shell gets a real cwd
-      const resolvedArgs = this.vfs.resolveArgs(args);
+      // The process cwd is the run root, so `cat workspace/foo` and
+      // `cat artifacts/foo` work as typed. An explicit working_directory is
+      // still validated: it must resolve inside the run root.
+      let resolvedArgs = args;
+      const wd = args.working_directory as string | undefined;
+      if (typeof wd === 'string' && wd.trim() !== '') {
+        try {
+          resolvedArgs = { ...args, working_directory: resolveWithin(this.vfs.runRoot, wd) };
+        } catch (err) {
+          return this.makeShellError(toolCallId,
+            err instanceof Error ? err.message : String(err)
+          );
+        }
+      }
+
       const result = await tool.execute(resolvedArgs) as ShellExecutionResult;
 
       // Sanitize stdout and stderr — commands like `pwd` or `ls -la` will
@@ -668,19 +672,11 @@ export class CoreToolsManager {
       return { role: 'tool', tool_call_id: toolCallId, content: JSON.stringify(sanitized) };
     }
 
-    // ── All other tools: virtual paths passed directly ────────────────────
+    // ── All other tools: relative paths passed directly ───────────────────
     // Tools resolve paths internally via VFS, so:
     //   (a) no real-path resolution before execute()
     //   (b) no real paths in results → no leaks
     // We still sanitize the full output JSON as a safety net.
-
-    try {
-      this.validateAllPaths(args);
-    } catch (err) {
-      return this.makeError(toolCallId,
-        `Security violation: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
 
     const result = await tool.execute(args);
 
@@ -706,25 +702,4 @@ export class CoreToolsManager {
     };
   }
 
-  // Keys whose values are path-like and should be validated.
-  // Keys like "content", "search", "replace" hold arbitrary user text and must
-  // never be scanned — otherwise legitimate markdown (e.g. /en/...) trips the
-  // path-traversal regex.
-  private static readonly PATH_KEYS = new Set([
-    'path', 'paths', 'working_directory',
-  ]);
-
-  private validateAllPaths(args: Record<string, unknown>): void {
-    for (const [key, value] of Object.entries(args)) {
-      if (!CoreToolsManager.PATH_KEYS.has(key)) continue;
-
-      if (typeof value === 'string') {
-        this.vfs?.validatePaths(value);
-      } else if (Array.isArray(value)) {
-        for (const item of value) {
-          if (typeof item === 'string') this.vfs?.validatePaths(item);
-        }
-      }
-    }
-  }
 }

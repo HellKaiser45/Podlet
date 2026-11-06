@@ -1,7 +1,9 @@
-import { join, extname, dirname } from "path";
-import { readdir, unlink, mkdir, rmdir, rm, stat, rename, copyFile, chmod } from "node:fs/promises";
-import type { FileResponse, FileUpload, VirtualScheme } from "../types";
-import { VIRTUAL_SCHEMES } from "../types";
+import { join, extname, dirname, basename, resolve, sep } from "path";
+import { realpathSync } from "node:fs";
+import {
+  readdir, unlink, mkdir, rm, stat, rename, copyFile, chmod, symlink, lstat, readlink,
+} from "node:fs/promises";
+import type { FileResponse, FileUpload } from "../types";
 import SkillsManager from "./skills";
 import { ChatCompletionContentPart, ChatCompletionUserMessageParam } from "openai/resources.js";
 import { createCanvas } from "@napi-rs/canvas";
@@ -19,17 +21,227 @@ const DOCUMENT_EXTENSIONS = new Set([
   'pdf',
 ]);
 
-const SCHEME_RESOLVERS: Record<VirtualScheme, (ctx: { rootDir: string; runId: string; cwd?: string }) => string> = {
-  "workspace://": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "workspace", runId),
-  "artifacts://": ({ rootDir, runId, cwd }) => cwd ?? join(rootDir, "artifacts", runId),
-  "skills://": ({ rootDir }) => join(rootDir, "skills"),
-};
+// ---------------------------------------------------------------------------
+// Path primitives
+// ---------------------------------------------------------------------------
+//
+// Every path the app accepts is RELATIVE and carries a mandatory first segment
+// naming one of three roots: workspace, artifacts, skills. There is no second
+// path language: tools, the shell (whose cwd is the run root) and the frontend
+// all speak this one form.
+
+export type VirtualRootName = "workspace" | "artifacts" | "skills";
+
+export const VIRTUAL_ROOTS: readonly VirtualRootName[] = ["workspace", "artifacts", "skills"];
+
+export class PathEscape extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PathEscape";
+  }
+}
+
+/**
+ * True when any path segment is exactly `..`. Segment-based on purpose: a
+ * filename that merely contains two dots (`..hidden`, `a..b.txt`) is legal.
+ */
+function hasParentSegment(rel: string): boolean {
+  return rel.split(/[\\/]/).some(segment => segment === "..");
+}
+
+/**
+ * realpath() that tolerates a path whose tail does not exist yet: the nearest
+ * existing ancestor is resolved and the missing tail appended. Necessary
+ * because writes target files (and sometimes directories) that do not exist.
+ */
+function realpathNearest(target: string): string {
+  const parts: string[] = [];
+  let current = resolve(target);
+
+  for (;;) {
+    try {
+      const real = realpathSync(current);
+      return parts.length > 0 ? join(real, ...parts) : real;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolve(target);
+      parts.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Resolve `rel` against `root` and guarantee the result stays inside `root`.
+ * The lexical path, the realpath of the parent and the realpath of the final
+ * path itself are all checked, so a symlink planted at any component —
+ * including the last one — cannot be used to step outside the root.
+ */
+export function resolveWithin(root: string, rel: string): string {
+  if (hasParentSegment(rel)) {
+    throw new PathEscape(`Path traversal (\.\.) is not allowed: "${rel}"`);
+  }
+
+  const absRoot = resolve(root);
+  const abs = resolve(absRoot, rel);
+
+  if (abs !== absRoot && !abs.startsWith(absRoot + sep)) {
+    throw new PathEscape(`Path escapes its root: "${rel}"`);
+  }
+
+  const realRoot = realpathNearest(absRoot);
+  if (abs === absRoot) return realRoot;
+
+  const realParent = realpathNearest(dirname(abs));
+  if (realParent !== realRoot && !realParent.startsWith(realRoot + sep)) {
+    throw new PathEscape(`Path escapes its root through a symlink: "${rel}"`);
+  }
+
+  const result = join(realParent, basename(abs));
+  const realFull = realpathNearest(result);
+  if (realFull !== realRoot && !realFull.startsWith(realRoot + sep)) {
+    throw new PathEscape(`Path escapes its root through a symlink: "${rel}"`);
+  }
+
+  return realFull;
+}
+
+export interface VirtualContext {
+  /** The Podlet data directory (parent of workspace/, runs/, skills/). */
+  podletDir: string;
+  runId: string;
+  /** Names of the skills assigned to this run; anything else is off-limits. */
+  allowedSkills: string[];
+}
+
+/** `<podletDir>/runs/<runId>` — the shell cwd and the stable pwd. */
+export function runRootPath(podletDir: string, runId: string): string {
+  return join(podletDir, "runs", runId);
+}
+
+/** The real directory backing a virtual root name. */
+export function rootFor(name: VirtualRootName, ctx: VirtualContext): string {
+  switch (name) {
+    case "workspace":
+      return join(runRootPath(ctx.podletDir, ctx.runId), "workspace");
+    case "artifacts":
+      return join(runRootPath(ctx.podletDir, ctx.runId), "artifacts");
+    case "skills":
+      return join(ctx.podletDir, "skills");
+  }
+}
+
+/** Split `<root>/<rest>` and return both halves, validating the root name. */
+export function splitVirtual(rel: string): { root: VirtualRootName; rest: string } {
+  if (typeof rel !== "string" || rel.trim() === "") {
+    throw new PathEscape("Empty path");
+  }
+
+  const normalized = rel.trim().replace(/\\/g, "/");
+
+  if (normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized)) {
+    throw new PathEscape(`Absolute paths are not allowed: "${rel}"`);
+  }
+
+  if (hasParentSegment(normalized)) {
+    throw new PathEscape(`Path traversal (\.\.) is not allowed: "${rel}"`);
+  }
+
+  const slash = normalized.indexOf("/");
+  const head = slash === -1 ? normalized : normalized.slice(0, slash);
+  const rest = slash === -1 ? "" : normalized.slice(slash + 1);
+
+  if (head !== "workspace" && head !== "artifacts" && head !== "skills") {
+    throw new PathEscape(
+      `Path must start with "workspace/", "artifacts/" or "skills/" — received "${rel}"`,
+    );
+  }
+
+  return { root: head, rest };
+}
+
+/** Map a relative virtual path onto its real absolute path, or throw. */
+export function resolveVirtual(rel: string, ctx: VirtualContext): string {
+  const { root, rest } = splitVirtual(rel);
+
+  if (root === "skills") {
+    const skillName = rest.split("/")[0];
+    if (!ctx.allowedSkills.includes(skillName)) {
+      throw new PathEscape(`Skill not assigned to this run: "${skillName || rest}"`);
+    }
+  }
+
+  return resolveWithin(rootFor(root, ctx), rest === "" ? "." : rest);
+}
+
+/**
+ * Reuse an existing symlink (or replace a stale/missing one) without touching
+ * an existing real directory. `type: 'junction'` is only meaningful on
+ * Windows; POSIX ignores it, so one call covers every platform.
+ */
+async function ensureSymlink(target: string, linkPath: string): Promise<void> {
+  try {
+    const info = await lstat(linkPath);
+    if (info.isSymbolicLink()) {
+      const current = await readlink(linkPath);
+      if (resolve(dirname(linkPath), current) === resolve(target)) return;
+      await rm(linkPath, { force: true });
+    } else {
+      return; // a real file/dir already occupies the name — leave it alone
+    }
+  } catch {
+    // nothing there yet
+  }
+
+  try {
+    await symlink(target, linkPath, "junction");
+  } catch (err) {
+    console.warn(`[vfs] Could not link ${linkPath} -> ${target}:`, err);
+  }
+}
+
+/**
+ * Create the per-run layout:
+ *   <podletDir>/runs/<runId>/              (run root, shell cwd)
+ *   <podletDir>/runs/<runId>/artifacts/    (real, writable)
+ *   <podletDir>/runs/<runId>/workspace/    (real, read-only input dir)
+ *   <podletDir>/runs/<runId>/skills/<name> -> <podletDir>/skills/<name>
+ */
+export async function ensureRunRoot(
+  podletDir: string,
+  runId: string,
+  allowedSkills: string[] = [],
+): Promise<string> {
+  const runRoot = runRootPath(podletDir, runId);
+  const workspaceRoot = join(runRoot, "workspace");
+
+  await mkdir(workspaceRoot, { recursive: true });
+  await mkdir(join(runRoot, "artifacts"), { recursive: true });
+  await mkdir(join(runRoot, "skills"), { recursive: true });
+
+  for (const name of allowedSkills) {
+    const target = join(podletDir, "skills", name);
+    try {
+      if (!(await stat(target)).isDirectory()) continue;
+    } catch {
+      continue; // skill not installed — nothing to link
+    }
+    await ensureSymlink(target, join(runRoot, "skills", name));
+  }
+
+  // Read-only input: r-x so it stays traversable, but nothing can be created
+  // in it by the shell.
+  try {
+    await chmod(workspaceRoot, 0o555);
+  } catch { /* best effort (filesystem may not support it) */ }
+
+  return runRoot;
+}
 
 export class VirtualFileSystem {
   private readonly rootDir: string;
   private readonly runId: string;
-  private readonly cwd?: string;
-  private readonly allowedSkillsLocation: string[];
+  private readonly allowedSkills: string[];
   private serialQueue = new SerialQueue();
 
   private readonly ignoreList = new Set([
@@ -60,31 +272,76 @@ export class VirtualFileSystem {
   constructor(
     rootDir: string,
     runId: string,
-    cwd?: string,
+    _cwd?: string,
     skillmanager?: SkillsManager,
-    skills: string[] = []
+    skills: string[] = [],
   ) {
     this.rootDir = rootDir;
     this.runId = runId;
-    this.cwd = cwd;
-    this.allowedSkillsLocation = skills
-      .flatMap(name => {
-        const skill = skillmanager?.availableSkills[name];
-        return skill ? [skill.location] : [];
-      });
+    void _cwd; // legacy: the run root is the cwd now
+    this.allowedSkills = skills.filter(name => !skillmanager || !!skillmanager.availableSkills[name]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Roots / context
+  // ---------------------------------------------------------------------------
+
+  get virtualContext(): VirtualContext {
+    return {
+      podletDir: this.rootDir,
+      runId: this.runId,
+      allowedSkills: this.allowedSkills,
+    };
+  }
+
+  /** `<podletDir>/runs/<runId>` — the shell cwd. */
+  get runRoot(): string {
+    return runRootPath(this.rootDir, this.runId);
+  }
+
+  get allowedSkillNames(): string[] {
+    return [...this.allowedSkills];
+  }
+
+  /** Resolve a relative virtual path to its real absolute path. */
+  resolveVirtual(rel: string): string {
+    return resolveVirtual(rel, this.virtualContext);
+  }
+
+  /** Create the per-run layout. Safe to call repeatedly. */
+  async ensureRunRoot(): Promise<string> {
+    return ensureRunRoot(this.rootDir, this.runId, this.allowedSkills);
   }
 
   // ---------------------------------------------------------------------------
   // Upload
   // ---------------------------------------------------------------------------
 
-  async upload(input: FileUpload, scheme: VirtualScheme = 'workspace://'): Promise<FileResponse[]> {
-    const schemeRoot = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-    await mkdir(schemeRoot, { recursive: true });
+  async upload(input: FileUpload, dest: VirtualRootName = "workspace"): Promise<FileResponse[]> {
+    const destRoot = resolveWithin(rootFor(dest, this.virtualContext), ".");
+    await mkdir(destRoot, { recursive: true });
+    // Make the destination writable for the duration of the upload; uploads into
+    // the workspace are re-locked at the end.
+    try {
+      await chmod(destRoot, 0o755);
+    } catch { /* best effort */ }
+
+    const writeInto = async (name: string, content: string | ArrayBuffer | Uint8Array) => {
+      const target = resolveWithin(destRoot, name);
+      try {
+        await chmod(target, 0o644);
+      } catch { /* new file */ }
+      await Bun.write(target, content);
+      return target;
+    };
 
     const results = await Promise.all(input.files.map(async (file) => {
       const buffer = await file.arrayBuffer();
-      const isPdf = extname(file.name).toLowerCase() === ".pdf";
+      // Only the last path component of a client-supplied name is ever used.
+      const safeName = basename(file.name.replace(/\\/g, "/"));
+      if (!safeName || safeName === "." || safeName === "..") return null;
+
+      const isPdf = extname(safeName).toLowerCase() === ".pdf";
 
       let storedFilename: string;
       let fileType: "text" | "image" = "text";
@@ -92,45 +349,43 @@ export class VirtualFileSystem {
       if (isPdf) {
         // Keep the original PDF bytes in the workspace. Rendering happens later,
         // when the model message is constructed.
-        storedFilename = file.name;
-        await Bun.write(join(schemeRoot, storedFilename), buffer);
+        storedFilename = safeName;
+        await writeInto(storedFilename, buffer);
       } else {
-        const resolved = await this.resolveAttachment(buffer, file.type, file.name);
+        const resolved = await this.resolveAttachment(buffer, file.type, safeName);
         if (!resolved) {
-          console.warn(`Skipping unsupported file: ${file.name} (${file.type})`);
+          console.warn(`Skipping unsupported file: ${safeName} (${file.type})`);
           return null;
         }
 
         if (resolved.type === "image") {
-          storedFilename = file.name;
+          storedFilename = safeName;
           fileType = "image";
-          await Bun.write(join(schemeRoot, storedFilename), buffer);
+          await writeInto(storedFilename, buffer);
         } else if (resolved.type === "text") {
-          storedFilename = file.name;
-          await Bun.write(join(schemeRoot, storedFilename), resolved.content);
+          storedFilename = safeName;
+          await writeInto(storedFilename, resolved.content);
         } else {
-          storedFilename = file.name.replace(/\.[^.]+$/, ".md");
-          await Bun.write(join(schemeRoot, storedFilename), resolved.content);
+          storedFilename = safeName.replace(/\.[^.]+$/, ".md");
+          await writeInto(storedFilename, resolved.content);
         }
       }
 
-      return {
-        name: storedFilename,
-        vpath: scheme + storedFilename,
-        id: Buffer.from(scheme + storedFilename).toString("base64url"),
-        type: fileType,
-      };
+      const vpath = `${dest}/${storedFilename}`;
+      return { name: storedFilename, vpath, id: vpath, type: fileType };
     }));
 
-    // Make workspace files read-only at the OS level
-    if (scheme === 'workspace://') {
+    // Workspace is the read-only input root.
+    if (dest === "workspace") {
       await Promise.all(results.filter(r => r !== null).map(async (r) => {
-        const filePath = join(schemeRoot, r!.name);
         try {
-          const info = await stat(filePath);
-          await chmod(filePath, info.isDirectory() ? 0o555 : 0o444);
+          const info = await stat(join(destRoot, r!.name));
+          await chmod(join(destRoot, r!.name), info.isDirectory() ? 0o555 : 0o444);
         } catch { /* best effort */ }
       }));
+      try {
+        await chmod(destRoot, 0o555);
+      } catch { /* best effort */ }
     }
 
     return results.filter((r): r is FileResponse => r !== null);
@@ -140,11 +395,8 @@ export class VirtualFileSystem {
   // List files
   // ---------------------------------------------------------------------------
 
-  async listFiles(scheme: VirtualScheme): Promise<FileResponse[]> {
-    const realPath = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-    // No mkdir here: this is a read path. A missing directory just means "empty"
-    // (the readdir catch below returns []). Creating it would leave orphaned
-    // folders on disk for chats where the user never sends a message.
+  async listFiles(root: VirtualRootName): Promise<FileResponse[]> {
+    const realPath = rootFor(root, this.virtualContext);
 
     let files: string[];
     try {
@@ -160,73 +412,20 @@ export class VirtualFileSystem {
     }
 
     return this.filterFiles(files).sort().map(file => {
-      const vpath = scheme + file;
+      const vpath = `${root}/${file}`;
       const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(file);
       return {
         name: file,
         vpath,
-        id: Buffer.from(vpath).toString('base64url'),
-        type: isImage ? 'image' : 'text',
+        id: vpath,
+        type: isImage ? 'image' as const : 'text' as const,
       };
     });
   }
 
   // ---------------------------------------------------------------------------
-  // Path resolution
+  // Error sanitising
   // ---------------------------------------------------------------------------
-
-  resolveArgs(args: Record<string, unknown>): Record<string, unknown> {
-    const resolveValue = (value: unknown): unknown => {
-      if (typeof value === "string") return this.resolveInString(value);
-      if (Array.isArray(value)) return value.map(resolveValue);
-      if (value !== null && typeof value === "object")
-        return this.resolveArgs(value as Record<string, unknown>);
-      return value;
-    };
-    return Object.fromEntries(
-      Object.entries(args).map(([key, value]) => [key, resolveValue(value)])
-    );
-  }
-
-  /**
-   * Replace all virtual scheme prefixes in a string with their real directory paths.
-   * Used only for the shell tool, which needs real cwd.
-   */
-  resolveInString(input: string): string {
-    const schemePattern = VIRTUAL_SCHEMES.map(s => s.replace("//", "\\/\\/")).join("|");
-    const regex = new RegExp(`(${schemePattern})`, "g");
-    return input.replace(regex, (scheme) => {
-      const resolved = SCHEME_RESOLVERS[scheme as VirtualScheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-      return resolved.endsWith("/") ? resolved : resolved + "/";
-    });
-  }
-
-  /**
-   * Convert a virtual path to a real absolute path.
-   *
-
-   * `artifacts://file.md` (correct form), rather than producing an
-   * absolute path that bypasses the sandbox root.
-   */
-  public virtualToReal(virtual: string): string {
-    const scheme = VIRTUAL_SCHEMES.find(s => virtual.startsWith(s));
-    if (!scheme) throw new Error(`Invalid Path: "${virtual}"`);
-
-    if (scheme === "skills://") {
-      const realSkillPath = join(this.rootDir, "skills", virtual.slice(scheme.length));
-      if (!this.allowedSkillsLocation.some(
-        allowed => realSkillPath === allowed || realSkillPath.startsWith(allowed + "/")
-      )) {
-        throw new Error(`Unauthorized skill path: "${virtual}"`);
-      }
-    }
-
-    // Strip any leading slashes from the relative portion.
-    // This prevents `artifacts:///foo` from resolving to `/foo` (absolute path)
-    // instead of `<artifactsRoot>/foo`.
-    const rel = virtual.slice(scheme.length).replace(/^\/+/, '');
-    return join(SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd }), rel);
-  }
 
   /**
    * Replace real filesystem paths in a string with their virtual equivalents.
@@ -234,31 +433,23 @@ export class VirtualFileSystem {
    */
   public sanitizeErrorMessage(error: unknown): string {
     const msg = error instanceof Error ? error.message : String(error);
-    const ctx = { rootDir: this.rootDir, runId: this.runId, cwd: this.cwd };
 
-    // Replace longest real paths first to prevent partial matches
-    const replacements: [string, string][] = VIRTUAL_SCHEMES
-      .map(s => [SCHEME_RESOLVERS[s](ctx), s] as [string, string])
-      .sort((a, b) => b[0].length - a[0].length);
+    const rawReplacements: [string, string][] = [
+      [join(this.runRoot, "workspace"), "workspace"],
+      [join(this.runRoot, "artifacts"), "artifacts"],
+      [join(this.runRoot, "skills"), "skills"],
+      [join(this.rootDir, "skills"), "skills"],
+      [this.runRoot, "."],
+      [this.rootDir, ""],
+    ];
+    const replacements = [...rawReplacements].sort((a, b) => b[0].length - a[0].length);
 
     let result = msg;
-    for (const [realRoot, virtualScheme] of replacements) {
-      result = result.split(realRoot).join(virtualScheme);
+    for (const [realRoot, virtualRoot] of replacements) {
+      result = result.split(realRoot + sep).join(virtualRoot ? virtualRoot + "/" : "");
+      result = result.split(realRoot).join(virtualRoot || ".");
     }
     return result;
-  }
-
-  /**
-   * Translate a real absolute path back to a virtual path.
-   */
-  realToVirtual(realPath: string): string {
-    for (const scheme of VIRTUAL_SCHEMES) {
-      const root = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-      if (realPath.startsWith(root)) {
-        return scheme + realPath.slice(root.length + 1);
-      }
-    }
-    throw new Error(`Path outside virtual scope: "${realPath}"`);
   }
 
   // ---------------------------------------------------------------------------
@@ -268,24 +459,22 @@ export class VirtualFileSystem {
   /**
    * Returns a BunFile instance. Does not read until .text()/.blob() is called.
    */
-  public getFile(fileId: string) {
-    const virtualPath = Buffer.from(fileId, 'base64url').toString();
-    const realPath = this.virtualToReal(virtualPath);
-    return Bun.file(realPath);
+  public getFile(vpath: string) {
+    return Bun.file(this.resolveVirtual(vpath));
   }
 
-  public async readFileText(fileId: string): Promise<string> {
-    return this.getFile(fileId).text();
+  public async readFileText(vpath: string): Promise<string> {
+    return this.getFile(vpath).text();
   }
 
   /**
-   * Read file text by virtual path (used by tools that receive virtual paths).
+   * Read file text by relative path (used by tools that receive relative paths).
    */
-  public async readFileTextByVPath(virtualPath: string): Promise<string> {
+  public async readFileTextByVPath(vpath: string): Promise<string> {
     try {
-      const realPath = this.virtualToReal(virtualPath);
+      const realPath = this.resolveVirtual(vpath);
       const file = Bun.file(realPath);
-      if (!(await file.exists())) throw new Error('File not found: ' + virtualPath);
+      if (!(await file.exists())) throw new Error('File not found: ' + vpath);
       return file.text();
     } catch (err) {
       throw new Error(this.sanitizeErrorMessage(err));
@@ -296,33 +485,37 @@ export class VirtualFileSystem {
   // Write / update / delete
   // ---------------------------------------------------------------------------
 
-  public async updateFile(fileId: string, content: string | Blob | ArrayBuffer): Promise<void> {
-    const virtualPath = Buffer.from(fileId, 'base64url').toString();
-    if (virtualPath.startsWith('workspace://')) {
-      throw new Error('Cannot write to workspace:// — it is read-only. Use stage_files to copy to artifacts:// first.');
+  private assertWritableRoot(vpath: string, action: string): void {
+    const { root } = splitVirtual(vpath);
+    if (root !== "artifacts") {
+      throw new Error(
+        `Cannot ${action} to "${root}/" — it is read-only. Use artifacts/ for anything you produce.`,
+      );
     }
-    const realPath = this.virtualToReal(virtualPath);
+  }
+
+  public async updateFile(vpath: string, content: string | Blob | ArrayBuffer): Promise<void> {
+    this.assertWritableRoot(vpath, "write");
+    const realPath = this.resolveVirtual(vpath);
     await Bun.write(realPath, content);
   }
 
-  public async deleteFile(fileId: string): Promise<void> {
-    const virtualPath = Buffer.from(fileId, 'base64url').toString();
-    const realPath = this.virtualToReal(virtualPath);
+  public async deleteFile(vpath: string): Promise<void> {
+    this.assertWritableRoot(vpath, "delete from");
+    const realPath = this.resolveVirtual(vpath);
     await unlink(realPath);
   }
 
   /**
-   * Atomically write content to a virtual path.
+   * Atomically write content to a relative path.
    * Uses a temp file + rename. Serializes writes via a queue.
-   * Refuses workspace:// paths.
+   * Refuses read-only roots.
    */
-  public async atomicWrite(virtualPath: string, content: string): Promise<void> {
-    if (virtualPath.startsWith('workspace://')) {
-      throw new Error('Cannot write to workspace:// — it is read-only. Use stage_files to copy to artifacts:// first.');
-    }
+  public async atomicWrite(vpath: string, content: string): Promise<void> {
+    this.assertWritableRoot(vpath, "write");
 
     return this.serialQueue.enqueue(async () => {
-      const realPath = this.virtualToReal(virtualPath);
+      const realPath = this.resolveVirtual(vpath);
       const dir = dirname(realPath);
       await mkdir(dir, { recursive: true });
       const tmpPath = `${realPath}.tmp.${Date.now()}`;
@@ -336,25 +529,25 @@ export class VirtualFileSystem {
   // ---------------------------------------------------------------------------
 
   /**
-   * Copy files from workspace:// to artifacts://, preserving directory structure.
-   * Skips files that already exist in artifacts://.
+   * Copy files from workspace/ to artifacts/, preserving directory structure.
+   * Skips files that already exist in artifacts/.
    */
-  public async stageFiles(virtualPaths: string[]): Promise<{ staged: string[]; skipped: string[]; errors: string[] }> {
+  public async stageFiles(vpaths: string[]): Promise<{ staged: string[]; skipped: string[]; errors: string[] }> {
     const staged: string[] = [];
     const skipped: string[] = [];
     const errors: string[] = [];
 
-    for (const vpath of virtualPaths) {
+    for (const vpath of vpaths) {
       try {
-        if (!vpath.startsWith('workspace://')) {
-          errors.push(`Not a workspace:// path: ${vpath}`);
+        const { root, rest } = splitVirtual(vpath);
+        if (root !== "workspace") {
+          errors.push(`Not a workspace/ path: ${vpath}`);
           continue;
         }
 
-        const rel = vpath.slice('workspace://'.length);
-        const artifactVPath = 'artifacts://' + rel;
-        const srcReal = this.virtualToReal(vpath);
-        const dstReal = this.virtualToReal(artifactVPath);
+        const artifactVPath = `artifacts/${rest}`;
+        const srcReal = this.resolveVirtual(vpath);
+        const dstReal = this.resolveVirtual(artifactVPath);
         const srcInfo = await stat(srcReal);
 
         if (srcInfo.isDirectory()) {
@@ -364,7 +557,7 @@ export class VirtualFileSystem {
             const entryRel = entry.parentPath.slice(srcReal.length).replace(/^\//, '');
             const entryFile = entryRel ? `${entryRel}/${entry.name}` : entry.name;
             const dstFile = join(dstReal, entryFile);
-            const dstVPath = `artifacts://${rel ? rel + '/' : ''}${entryFile}`;
+            const dstVPath = `artifacts/${rest ? rest + '/' : ''}${entryFile}`;
 
             if (await Bun.file(dstFile).exists()) {
               skipped.push(dstVPath);
@@ -395,39 +588,41 @@ export class VirtualFileSystem {
   // Filesystem tree / context
   // ---------------------------------------------------------------------------
 
-  private async getSchemeTree(scheme: VirtualScheme): Promise<string> {
-    const realPath = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: this.runId, cwd: this.cwd });
-    // No mkdir here either: a missing directory renders as "(empty)".
+  private async getRootTree(root: VirtualRootName): Promise<string> {
+    const realPath = rootFor(root, this.virtualContext);
+    const label = `${root}/`;
 
     let files: string[];
     try {
       files = (await readdir(realPath, { recursive: true })) as string[];
     } catch {
-      return `${scheme}\n  (empty)`;
+      return `${label}\n  (empty)`;
     }
 
-    const filtered = this.filterFiles(files);
-    if (filtered.length === 0) return `${scheme}\n  (empty)`;
-    return `${scheme}\n` + filtered.sort().map(f => `  ${f}`).join("\n");
+    const filtered = this.filterFiles(files.map(f => String(f)));
+    if (filtered.length === 0) return `${label}\n  (empty)`;
+    return `${label}\n` + filtered.sort().map(f => `  ${root}/${f}`).join("\n");
   }
 
   public async getContextTree(): Promise<string> {
-    const AGENT_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("skills://" satisfies VirtualScheme));
-    const trees = await Promise.all(AGENT_SCHEMES.map(s => this.getSchemeTree(s)));
+    const trees = await Promise.all(
+      (["workspace", "artifacts"] as const).map(s => this.getRootTree(s)),
+    );
     const tree = trees.join("\n\n");
 
     return `
 <filesystem_context>
 ## Virtual Filesystem
-You operate in a fully isolated virtual filesystem. The file tree below is **exhaustive and complete** — it contains every file that exists. There are no hidden files, no other directories, and no external sources to check.
+You operate inside a per-run directory. The tree below is **exhaustive and complete** — it contains every file that exists. There are no hidden files, no other directories, and no external sources to check.
 
 **ABSOLUTE RULES — never violated under any circumstance:**
 1. A file not listed in the tree below **does not exist**. Do not reference it, guess its path, or attempt to access it.
-2. All paths MUST begin with \`workspace://\` or \`artifacts://\`. No exceptions.
-3. Never emit real filesystem paths (\`/etc\`, \`~\`, \`../\`, URLs, etc.).
-4. \`workspace://\` is **read-only**. Never write to it.
-5. \`artifacts://\` is your **write space**. All files you produce go here.
-6. To look at an image (.png, .jpg, .jpeg, .webp, .gif), use see_image. read_file cannot read images.
+2. All paths are **relative to your run root** (your working directory) and MUST begin with \`workspace/\`, \`artifacts/\` or \`skills/\`. No exceptions.
+3. Absolute paths (\`/etc\`, \`~\`, \`../\`) are rejected.
+4. \`workspace/\` is **read-only** input. Never write to it.
+5. \`artifacts/\` is your **write space**. All files you produce go here.
+6. \`skills/\` is **read-only** and contains only the skills assigned to you.
+7. To look at an image (.png, .jpg, .jpeg, .webp, .gif), use see_image. read_file cannot read images.
 
 **If a file you need does not appear in the tree: stop and tell the user. Do not speculate.**
 
@@ -442,64 +637,20 @@ You operate in a fully isolated virtual filesystem. The file tree below is **exh
 | Copy workspace file for editing   | stage_files       | cp via shell                       |
 | Build, test, install, git         | execute_shell     | —                                  |
 
-## Schemes
-- **workspace://** — User-provided input files. Read-only source of truth.
-- **artifacts://** — Your working output space. Write all produced files here.
+## Roots
+- **workspace/** — User-provided input files. Read-only source of truth.
+- **artifacts/** — Your working output space. Write all produced files here.
+- **skills/** — Read-only skill instructions.
 - Images are attached to the conversation after a see_image call — the receipt you get back is metadata only, so do not try to read the pixels back out of it.
 
 ## Path format
-Paths must be \`scheme://relative/path/to/file\` — no leading slash after the scheme.
-- Correct:   \`artifacts://report.md\`
-- Incorrect: \`artifacts:///report.md\` ← triple slash, will fail
+Paths are relative and start with a root segment.
+- Correct:   \`artifacts/report.md\`, \`workspace/input.txt\`, \`skills/pdf-tools/SKILL.md\`
+- Incorrect: \`/artifacts/report.md\` ← leading slash, will be rejected
 
 ## Complete File Tree
 ${tree}
 </filesystem_context>`.trim();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Path validation
-  // ---------------------------------------------------------------------------
-
-  private readonly SHELL_SYSTEM_PATHS = new Set([
-    '/dev/null', '/dev/stdin', '/dev/stdout', '/dev/stderr',
-  ]);
-
-  validatePaths(input: string): void {
-    // Strip heredoc body before any path checks
-    const strippedHeredoc = input.replace(/<<\s*['"]?(\w+)['"]?.*?^\1$/gms, '');
-
-    if (/(\.\.[/\\])|(\/\.\.)/.test(strippedHeredoc)) {
-      throw new Error(`Path traversal (..) is strictly forbidden.`);
-    }
-
-    if (/(?<![a-z])https?:\/\/|(?<![a-z])ftp:\/\//.test(strippedHeredoc)) {
-      throw new Error(`Web URLs are not allowed.`);
-    }
-
-    const tokens = strippedHeredoc.split(/\s+/);
-    const ctx = { rootDir: this.rootDir, runId: this.runId, cwd: this.cwd };
-    const allowedRoots = VIRTUAL_SCHEMES.map(s => SCHEME_RESOLVERS[s](ctx));
-
-    for (const token of tokens) {
-      const cleanToken = token.replace(/['"]/g, '');
-      if (/^\/[a-zA-Z0-9_~]/.test(cleanToken)) {
-        if (this.SHELL_SYSTEM_PATHS.has(cleanToken)) continue;
-        if (!allowedRoots.some(root => cleanToken.startsWith(root))) {
-          throw new Error(`Unauthorized absolute path: "${cleanToken}". Use relative paths or virtual schemes (workspace://).`);
-        }
-      }
-      if (cleanToken.startsWith('~/')) {
-        throw new Error(`Access to home directory (~) is forbidden.`);
-      }
-    }
-
-    const usedSchemes = strippedHeredoc.match(/(?<![a-z])[a-z]+:\/\//g) ?? [];
-    for (const scheme of usedSchemes) {
-      if (!VIRTUAL_SCHEMES.includes(scheme as VirtualScheme)) {
-        throw new Error(`Unknown scheme "${scheme}"`);
-      }
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -611,10 +762,10 @@ ${tree}
     const parts: ChatCompletionContentPart[] = [];
 
     for (const fileID of fileIDs) {
-      const virtualPath = Buffer.from(fileID, "base64url").toString();
-      const file = this.getFile(fileID);
+      const vpath = fileID;
+      const file = this.getFile(vpath);
 
-      if (extname(virtualPath).toLowerCase() === ".pdf") {
+      if (extname(vpath).toLowerCase() === ".pdf") {
         const loadingTask = getDocument({
           data: new Uint8Array(await file.arrayBuffer()),
           useSystemFonts: true,
@@ -625,7 +776,7 @@ ${tree}
         try {
           if (pdf.numPages > MAX_PDF_PAGES) {
             throw new Error(
-              `PDF ${virtualPath} has ${pdf.numPages} pages; the maximum supported is ${MAX_PDF_PAGES}.`,
+              `PDF ${vpath} has ${pdf.numPages} pages; the maximum supported is ${MAX_PDF_PAGES}.`,
             );
           }
 
@@ -688,15 +839,13 @@ ${tree}
   // ---------------------------------------------------------------------------
 
   async deleteFolder(runid: string) {
-    const DELETABLE_SCHEMES = VIRTUAL_SCHEMES.filter(s => s !== ("skills://" satisfies VirtualScheme));
-    for (const scheme of DELETABLE_SCHEMES) {
-      const pathToDelete = SCHEME_RESOLVERS[scheme]({ rootDir: this.rootDir, runId: runid });
-      await rm(pathToDelete, { recursive: true, force: true });
-    }
+    await rm(runRootPath(this.rootDir, runid), { recursive: true, force: true });
+    // Legacy layout from before the run-root refactor.
+    await rm(join(this.rootDir, "artifacts", runid), { recursive: true, force: true });
   }
 
-  public async streamFolderAsZip(virtualPath: string): Promise<Response> {
-    const realPath = this.virtualToReal(virtualPath);
+  public async streamFolderAsZip(vpath: string): Promise<Response> {
+    const realPath = this.resolveVirtual(vpath);
     const info = await stat(realPath);
     if (!info.isDirectory()) throw new Error('Not a directory');
 
@@ -712,7 +861,7 @@ ${tree}
     }
 
     const zipped = fflate.zipSync(files);
-    const folderName = virtualPath.split('/').filter(Boolean).pop() || 'folder';
+    const folderName = vpath.split('/').filter(Boolean).pop() || 'folder';
 
     return new Response(zipped, {
       headers: {

@@ -45,6 +45,9 @@ export class AgentChatLoop {
     while (iterations < this.context.maxIterations) {
       switch (this.context.currentState) {
         case AgentState.INITIALIZING: {
+          // Create runs/<runId>/(artifacts, workspace -> global, skills -> assigned)
+          // before any tool or shell command runs in it.
+          await this.vfs.ensureRunRoot()
           await Promise.all((this.agentDef.mcps || []).map(mcp => this.appContainer.mcpManager.startserver(mcp)))
           if (this.context.frame.pending_approvals && this.context.frame.pending_approvals.length > 0) {
             this.transitionTo(AgentState.EXECUTING_TOOLS)

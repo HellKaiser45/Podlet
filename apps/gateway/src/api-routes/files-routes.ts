@@ -5,11 +5,11 @@ import { FileUploadSchema } from '../types';
 
 const vfsCache = new Map<string, VirtualFileSystem>();
 
-function getVFS(rootDir: string, runId: string, cwd?: string): VirtualFileSystem {
-  const key = `${runId}:${cwd ?? ''}`;
+function getVFS(rootDir: string, runId: string): VirtualFileSystem {
+  const key = runId;
   let vfs = vfsCache.get(key);
   if (!vfs) {
-    vfs = new VirtualFileSystem(rootDir, runId, cwd);
+    vfs = new VirtualFileSystem(rootDir, runId);
     if (vfsCache.size > 50) {
       const firstKey = vfsCache.keys().next().value;
       if (firstKey !== undefined) vfsCache.delete(firstKey);
@@ -19,10 +19,23 @@ function getVFS(rootDir: string, runId: string, cwd?: string): VirtualFileSystem
   return vfs;
 }
 
+/**
+ * Paths travel in the URL percent-encoded (e.g. `artifacts%2Fsub%2Fa.py`) so a
+ * nested relative path stays a single path segment. The payload is the plain
+ * relative path — no opaque file id is exchanged anymore.
+ */
+function decodePath(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export default function filesRoutes(container: AppContainer) {
   return new Elysia({ prefix: '/file' })
     .post('/upload', async function ({ body }) {
-      const virtualManager = getVFS(container.initConfig.podletDir, body.runId, body.cwd)
+      const virtualManager = getVFS(container.initConfig.podletDir, body.runId)
 
       const result = await virtualManager.upload(body)
       console.log('upload result: ', result)
@@ -31,27 +44,12 @@ export default function filesRoutes(container: AppContainer) {
     }, {
       body: FileUploadSchema,
     })
-    .get('download-zip/:runid/:folderid', async function ({ params }) {
-      const virtualPath = Buffer.from(params.folderid, 'base64url').toString();
-      const virtualManager = getVFS(container.initConfig.podletDir, params.runid);
-      return virtualManager.streamFolderAsZip(virtualPath);
-    })
-    .get('download/:runid/:fileid', function ({ params }) {
-      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
-      const bfile = virtualManager.getFile(params.fileid)
-
-      return bfile
-    })
-    .get(':runid/:fileid', async function ({ params }) {
-      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
-      return virtualManager.readFileText(params.fileid)
-    })
     .get(
       '/all/:runid',
       async ({ params }) => {
         const vm = getVFS(container.initConfig.podletDir, params.runid)
-        const ws = await vm.listFiles('workspace://')
-        const art = await vm.listFiles('artifacts://')
+        const ws = await vm.listFiles('workspace')
+        const art = await vm.listFiles('artifacts')
         return ws.concat(art)
       },
       {
@@ -65,13 +63,26 @@ export default function filesRoutes(container: AppContainer) {
         )
       }
     )
+    .get('download-zip/:runid/:folderid', async function ({ params }) {
+      const folderPath = decodePath(params.folderid);
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid);
+      return virtualManager.streamFolderAsZip(folderPath);
+    })
+    .get('download/:runid/:fileid', function ({ params }) {
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
+      return virtualManager.getFile(decodePath(params.fileid))
+    })
+    .get(':runid/:fileid', async function ({ params }) {
+      const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
+      return virtualManager.readFileText(decodePath(params.fileid))
+    })
     .delete('/:runid/:fileid', async function ({ params }) {
       const virtualManager = getVFS(container.initConfig.podletDir, params.runid)
-      return virtualManager.deleteFile(params.fileid)
+      return virtualManager.deleteFile(decodePath(params.fileid))
     })
     .patch('/:runid/:fileid', async function ({ params, body }) {
       const virtualManager = getVFS(container.initConfig.podletDir, params.runid);
-      await virtualManager.updateFile(params.fileid, body);
+      await virtualManager.updateFile(decodePath(params.fileid), body);
       return { success: true };
     }, {
       body: t.String()

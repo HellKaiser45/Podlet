@@ -1,5 +1,5 @@
 export function getFileScheme(vpath: string): "workspace" | "artifacts" {
-  return vpath.startsWith("artifacts://") ? "artifacts" : "workspace";
+  return vpath.startsWith("artifacts/") ? "artifacts" : "workspace";
 }
 
 export function getFileExt(name: string): string {
