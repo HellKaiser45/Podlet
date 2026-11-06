@@ -37,7 +37,7 @@ export class AgentClient {
     const systemPrompt = await this.appContainer.skillManager.injectSkills(agent.skills || [], await this.appContainer.agentManager.getAgentprompt(agentId), vfileSystem);
     const updatedSystemPrompt = await vfileSystem.getContextTree()
 
-    const hydrated = await hydrateVisionHistory(history, vfileSystem, this.appContainer.initConfig.vision);
+    const hydrated = await hydrateVisionHistory(history, vfileSystem);
 
     return {
       provider: model.provider,

@@ -25,8 +25,6 @@ async function loadConfig(): Promise<AppConfig> {
   const safemode = configFile.features?.safemode ?? false;
   const vision = {
     enabled: configFile.features?.vision?.enabled ?? true,
-    max_live_images: configFile.features?.vision?.max_live_images ?? 4,
-    max_live_image_tokens: configFile.features?.vision?.max_live_image_tokens ?? 12_000,
     max_edge: configFile.features?.vision?.max_edge ?? 1568,
     max_images_per_call: configFile.features?.vision?.max_images_per_call ?? 4,
   };

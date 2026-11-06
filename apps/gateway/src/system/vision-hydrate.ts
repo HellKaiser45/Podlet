@@ -1,4 +1,4 @@
-import type { ChatCompletionContentPart, SeeImageReceipt, VisionSettings } from '@podlet/types';
+import type { ChatCompletionContentPart, SeeImageReceipt } from '@podlet/types';
 import type { LiteLLMMessage } from '../types';
 import type { VirtualFileSystem } from './sandbox';
 import { prepareImage } from './vision';
@@ -43,7 +43,7 @@ function parseVisionToolMessage(
   const obj = parsed as Record<string, unknown>;
   if (obj.ok !== true) return null;
   if (!Array.isArray(obj.images)) return null;
-  // An already-stubbed message (images: []) must be left untouched so that
+  // A message with an empty images array must be left untouched so that
   // re-running hydration is idempotent.
   if (obj.images.length === 0) return null;
 
@@ -52,16 +52,6 @@ function parseVisionToolMessage(
     toolCallId: String((message as { tool_call_id?: unknown }).tool_call_id ?? ''),
     receipts: obj.images as SeeImageReceipt[],
   };
-}
-
-/**
- * Replace a vision tool message's content with a stub that tells the model the
- * image is gone. The reason is implicit in the text; there is only one budget
- * that can drop an image now (context), so no reason variant is needed.
- */
-function stubContent(vpaths: string[]): string {
-  const text = `image no longer in context — call see_image again to view ${vpaths.join(', ')}`;
-  return JSON.stringify({ ok: true, images: [], errors: [], stub: text });
 }
 
 function makeUserMessage(text: string, parts: ChatCompletionContentPart[]): LiteLLMMessage {
@@ -100,8 +90,10 @@ function isHydrationMessage(message: LiteLLMMessage, toolCallId: string): boolea
  * image slot — so pixels must travel as a separate `user` message injected
  * here, at request-build time.
  *
- * The prepared bytes are looked up in `visionCache` first: when the source file
- * is unchanged since it was viewed, hydration never re-reads or re-decodes it.
+ * Every image in history is hydrated — there is no live-image or token budget,
+ * so no image is ever dropped. The prepared-image cache is what keeps repeated
+ * turns cheap: when the source file is unchanged since it was viewed, hydration
+ * never re-reads or re-decodes it.
  *
  * Pure with respect to `history`: the input array and every object within it
  * are left untouched; a new array is returned.
@@ -109,7 +101,6 @@ function isHydrationMessage(message: LiteLLMMessage, toolCallId: string): boolea
 export async function hydrateVisionHistory(
   history: LiteLLMMessage[],
   vfs: VirtualFileSystem,
-  settings: VisionSettings,
 ): Promise<LiteLLMMessage[]> {
   // Shallow copy: entries are only replaced/extended, never mutated.
   const output: LiteLLMMessage[] = history.slice();
@@ -126,46 +117,17 @@ export async function hydrateVisionHistory(
   }
   if (records.length === 0) return output;
 
-  // 2. Newest-first image budget. Keyed by `<msgIndex>:<imgIndex>`.
-  const budgeted = new Set<string>();
-  let imagesRemaining = Math.max(0, Math.floor(settings.max_live_images));
-  for (let r = records.length - 1; r >= 0 && imagesRemaining > 0; r--) {
-    const record = records[r];
-    for (let k = 0; k < record.receipts.length && imagesRemaining > 0; k++) {
-      budgeted.add(`${record.index}:${k}`);
-      imagesRemaining--;
-    }
-  }
-
-  // 3. Prepare images newest-first, enforcing the token budget, and build one
-  //    user message per hydrated tool message.
+  // 2. Prepare every image in every record, and build one user message per
+  //    hydrated tool message.
   const hydrated = new Map<number, { text: string; parts: ChatCompletionContentPart[] }>();
-  const stubbed = new Set<number>();
-
-  let tokensUsed = 0;
-  let tokenCapped = false;
 
   for (let r = records.length - 1; r >= 0; r--) {
     const record = records[r];
 
-    const budgetedReceipts = record.receipts.filter((_, k) =>
-      budgeted.has(`${record.index}:${k}`),
-    );
-
-    if (budgetedReceipts.length === 0) {
-      stubbed.add(record.index);
-      continue;
-    }
-    if (tokenCapped) {
-      stubbed.add(record.index);
-      continue;
-    }
-
     const lines: string[] = [];
     const parts: ChatCompletionContentPart[] = [];
-    let recordTokens = 0;
 
-    for (const receipt of budgetedReceipts) {
+    for (const receipt of record.receipts) {
       const vpath = receipt.vpath;
 
       // Stat instead of read: the common case (unchanged file, warm cache)
@@ -194,7 +156,6 @@ export async function hydrateVisionHistory(
           type: 'image_url',
           image_url: { url: `data:${cached.mime};base64,${cached.b64}` },
         });
-        recordTokens += receipt.tokens_est;
         lines.push(`${vpath} (${cached.width}x${cached.height}, ~${receipt.tokens_est} tokens)`);
         continue;
       }
@@ -231,7 +192,6 @@ export async function hydrateVisionHistory(
         type: 'image_url',
         image_url: { url: `data:${image.mime};base64,${b64}` },
       });
-      recordTokens += receipt.tokens_est;
 
       lines.push(`${vpath} (${image.width}x${image.height}, ~${receipt.tokens_est} tokens)`);
       if (image.sha !== receipt.sha) {
@@ -241,17 +201,7 @@ export async function hydrateVisionHistory(
       }
     }
 
-    // Token budget: once a message would push the cumulative visual-token
-    // estimate over the limit, stub it and every older message. The newest
-    // hydrated message is always allowed through even if it alone exceeds it.
-    if (tokensUsed > 0 && tokensUsed + recordTokens > settings.max_live_image_tokens) {
-      stubbed.add(record.index);
-      tokenCapped = true;
-      continue;
-    }
-    tokensUsed += recordTokens;
-
-    const header = `Images from see_image call ${record.toolCallId}:`;
+    const header = `Images from see_image call ${record.toolCallId}:`
     const text = lines.length === 1 ? `${header} ${lines[0]}` : `${header}\n${lines.join('\n')}`;
     hydrated.set(record.index, { text, parts });
   }
@@ -269,25 +219,21 @@ export async function hydrateVisionHistory(
       continue;
     }
 
-    const hydratedEntry = hydrated.get(i);
-    if (hydratedEntry) {
-      // Tool message is unchanged; the pixels travel in the user message that
-      // follows it immediately.
-      result.push(message);
-      const next = history[i + 1];
-      if (next && isHydrationMessage(next, record.toolCallId)) {
-        // Already hydrated by a previous pass — reuse it verbatim so a second
-        // call is idempotent instead of duplicating the image message.
-        result.push(next);
-        skip.add(i + 1);
-      } else {
-        result.push(makeUserMessage(hydratedEntry.text, hydratedEntry.parts));
-      }
-      continue;
-    }
+    // Every record is hydrated above, so the entry always exists here.
+    const hydratedEntry = hydrated.get(i)!;
 
-    const vpaths = record.receipts.map((rc) => rc.vpath);
-    result.push({ ...(message as object), content: stubContent(vpaths) } as LiteLLMMessage);
+    // Tool message is unchanged; the pixels travel in the user message that
+    // follows it immediately.
+    result.push(message);
+    const next = history[i + 1];
+    if (next && isHydrationMessage(next, record.toolCallId)) {
+      // Already hydrated by a previous pass — reuse it verbatim so a second
+      // call is idempotent instead of duplicating the image message.
+      result.push(next);
+      skip.add(i + 1);
+    } else {
+      result.push(makeUserMessage(hydratedEntry.text, hydratedEntry.parts));
+    }
   }
 
   return result;

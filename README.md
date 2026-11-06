@@ -91,7 +91,7 @@ You can customize either before or after that first copy:
   },
   "features": {
     "safemode": false,
-    "vision": { "enabled": true, "max_live_images": 4, "max_bytes_per_request": 10485760, "max_edge": 1568, "max_images_per_call": 4 }
+    "vision": { "enabled": true, "max_edge": 1568, "max_images_per_call": 4 }
   }
 }
 ```
@@ -107,8 +107,6 @@ You can customize either before or after that first copy:
 | `database.path` | string | `"podlet.db"` | SQLite file name inside `~/.podlet`. |
 | `features.safemode` | boolean | `false` | Human-in-the-Loop approval for destructive tool calls. |
 | `features.vision.enabled` | boolean | `true` | Global kill switch for the image-viewing tool. |
-| `features.vision.max_live_images` | number | `4` | How many images may sit in one model request. |
-| `features.vision.max_bytes_per_request` | number | `10485760` | Total image payload cap per request, in bytes. |
 | `features.vision.max_edge` | number | `1568` | Longest edge used when shrinking an image before sending. |
 | `features.vision.max_images_per_call` | number | `4` | How many images one `see_image` call may request. |
 

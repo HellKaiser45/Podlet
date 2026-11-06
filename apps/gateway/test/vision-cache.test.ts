@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCanvas } from '@napi-rs/canvas';
-import type { SeeImageReceipt, VisionSettings } from '@podlet/types';
+import type { SeeImageReceipt } from '@podlet/types';
 import { VirtualFileSystem } from '../src/system/sandbox';
 import { prepareImage } from '../src/system/vision';
 import { MAX_ENTRIES, visionCache } from '../src/system/vision-cache';
@@ -17,14 +17,6 @@ import type { LiteLLMMessage } from '../src/types';
 let podletDir: string;
 let vfs: VirtualFileSystem;
 const runId = 'vision-run';
-
-const settings: VisionSettings = {
-  enabled: true,
-  max_live_images: 4,
-  max_live_image_tokens: 12_000,
-  max_edge: 1568,
-  max_images_per_call: 4,
-};
 
 function makePng(width: number, height: number, color = '#204a87'): Uint8Array {
   const canvas = createCanvas(width, height);
@@ -171,62 +163,18 @@ describe('hydrateVisionHistory', () => {
     const history = [visionToolMessage('call-1', [receipt])];
 
     // First call: cache miss -> prepare -> set.
-    const first = await hydrateVisionHistory(history, vfs, settings);
+    const first = await hydrateVisionHistory(history, vfs);
     const afterFirst = visionCache.stats();
     expect(afterFirst.misses).toBe(1);
     expect(afterFirst.hits).toBe(0);
     expect(first.some((m) => m.role === 'user')).toBe(true);
 
     // Second call: unchanged file -> cache hit, no get-miss, no prepare.
-    const second = await hydrateVisionHistory(history, vfs, settings);
+    const second = await hydrateVisionHistory(history, vfs);
     const afterSecond = visionCache.stats();
     expect(afterSecond.hits).toBe(afterFirst.hits + 1);
     expect(afterSecond.misses).toBe(afterFirst.misses);
     expect(second.some((m) => m.role === 'user')).toBe(true);
-  });
-
-  test('token budget stubs older images and keeps the newest', async () => {
-    await writeArtifact('artifacts/t-newest.png', makePng(40, 40));
-    await writeArtifact('artifacts/t-mid.png', makePng(50, 50));
-    const newest = await makeReceipt('artifacts/t-newest.png', 5000);
-    const mid = await makeReceipt('artifacts/t-mid.png', 5000);
-    // Oldest references a file that need not exist: it is stubbed before any
-    // stat because the token budget is already exhausted.
-    const oldest: SeeImageReceipt = {
-      ...newest,
-      vpath: 'artifacts/t-oldest-missing.png',
-      id: 'artifacts/t-oldest-missing.png',
-      tokens_est: 5000,
-    };
-
-    const history = [
-      visionToolMessage('old-call', [oldest]),
-      visionToolMessage('mid-call', [mid]),
-      visionToolMessage('new-call', [newest]),
-    ];
-
-    const out = await hydrateVisionHistory(history, vfs, {
-      ...settings,
-      max_live_image_tokens: 8000,
-    });
-
-    // Newest survives and is followed by a user message carrying the image.
-    const newIdx = out.findIndex(
-      (m) => (m as { tool_call_id?: unknown }).tool_call_id === 'new-call',
-    );
-    expect(newIdx).toBeGreaterThanOrEqual(0);
-    const afterNew = out[newIdx + 1] as { role?: string; content?: unknown };
-    expect(afterNew.role).toBe('user');
-    const parts = afterNew.content as Array<{ type?: string }>;
-    expect(parts.some((p) => p.type === 'image_url')).toBe(true);
-
-    // Older messages become stubs.
-    for (const id of ['mid-call', 'old-call']) {
-      const msg = toolMessageById(out, id) as { content?: string };
-      const parsed = JSON.parse(msg.content ?? '{}');
-      expect(parsed.images).toEqual([]);
-      expect(parsed.stub).toContain('image no longer in context');
-    }
   });
 
   test('a file changed on disk is re-prepared and flagged', async () => {
@@ -234,7 +182,7 @@ describe('hydrateVisionHistory', () => {
     const before = await makeReceipt('artifacts/change.png');
     const history = [visionToolMessage('change-call', [before])];
 
-    await hydrateVisionHistory(history, vfs, settings);
+    await hydrateVisionHistory(history, vfs);
 
     // Rewrite the source with different bytes and a newer mtime.
     const real = vfs.resolveVirtual('artifacts/change.png');
@@ -242,7 +190,7 @@ describe('hydrateVisionHistory', () => {
     const future = new Date(Date.now() + 10_000);
     await utimes(real, future, future);
 
-    const out = await hydrateVisionHistory(history, vfs, settings);
+    const out = await hydrateVisionHistory(history, vfs);
     const userMsg = out.find((m) => m.role === 'user') as {
       content?: Array<{ type?: string; text?: string }>;
     };

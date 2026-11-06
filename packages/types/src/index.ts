@@ -26,8 +26,6 @@ export interface ConfigFile {
     safemode?: boolean;
     vision?: {
       enabled?: boolean;
-      max_live_images?: number;
-      max_live_image_tokens?: number;
       max_edge?: number;
       max_images_per_call?: number;
     };
@@ -36,8 +34,6 @@ export interface ConfigFile {
 
 export interface VisionSettings {
   enabled: boolean;
-  max_live_images: number;
-  max_live_image_tokens: number;
   max_edge: number;
   max_images_per_call: number;
 }

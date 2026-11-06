@@ -10,6 +10,6 @@
   },
   "features": {
     "safemode": false,
-    "vision": { "enabled": true, "max_live_images": 4, "max_live_image_tokens": 12000, "max_edge": 1568, "max_images_per_call": 4 }
+    "vision": { "enabled": true, "max_edge": 1568, "max_images_per_call": 4 }
   }
 }
