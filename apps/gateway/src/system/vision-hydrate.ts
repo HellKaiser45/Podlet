@@ -1,42 +1,12 @@
-import type { ChatCompletionContentPart, VisionSettings } from '@podlet/types';
+import type { ChatCompletionContentPart, SeeImageReceipt, VisionSettings } from '@podlet/types';
 import type { LiteLLMMessage } from '../types';
 import type { VirtualFileSystem } from './sandbox';
 import { prepareImage } from './vision';
+import { visionCache } from './vision-cache';
 
 // ---------------------------------------------------------------------------
-// Receipt shape
+// Local shapes
 // ---------------------------------------------------------------------------
-//
-// Mirrors the `SeeImageReceipt` produced by `SeeImageTool`. It is duplicated
-// here (rather than imported from core_tools) so this module stays free of any
-// dependency on the tools layer — importantly it must not create an import
-// cycle with sandbox.ts.
-
-interface ReceiptCrop {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  unit: 'px' | 'fraction';
-}
-
-interface SeeImageReceipt {
-  vpath: string;
-  id: string;
-  sha: string;
-  source: { mime: string; width: number; height: number; bytes: number };
-  rendered: {
-    mime: string;
-    width: number;
-    height: number;
-    bytes: number;
-    max_edge: number;
-    format: 'png' | 'jpeg';
-    crop: ReceiptCrop | null;
-  };
-  tokens_est: number;
-  dropped_from_context: boolean;
-}
 
 interface VisionToolMessage {
   index: number;
@@ -84,9 +54,13 @@ function parseVisionToolMessage(
   };
 }
 
-function stubContent(vpaths: string[], reason: 'context' | 'size'): string {
-  const suffix = reason === 'size' ? ' (dropped: request size cap)' : '';
-  const text = `image no longer in context — call see_image again to view ${vpaths.join(', ')}${suffix}`;
+/**
+ * Replace a vision tool message's content with a stub that tells the model the
+ * image is gone. The reason is implicit in the text; there is only one budget
+ * that can drop an image now (context), so no reason variant is needed.
+ */
+function stubContent(vpaths: string[]): string {
+  const text = `image no longer in context — call see_image again to view ${vpaths.join(', ')}`;
   return JSON.stringify({ ok: true, images: [], errors: [], stub: text });
 }
 
@@ -126,6 +100,9 @@ function isHydrationMessage(message: LiteLLMMessage, toolCallId: string): boolea
  * image slot — so pixels must travel as a separate `user` message injected
  * here, at request-build time.
  *
+ * The prepared bytes are looked up in `visionCache` first: when the source file
+ * is unchanged since it was viewed, hydration never re-reads or re-decodes it.
+ *
  * Pure with respect to `history`: the input array and every object within it
  * are left untouched; a new array is returned.
  */
@@ -160,13 +137,13 @@ export async function hydrateVisionHistory(
     }
   }
 
-  // 3. Prepare images newest-first, enforcing the request byte cap, and build
-  //    one user message per hydrated tool message.
+  // 3. Prepare images newest-first, enforcing the token budget, and build one
+  //    user message per hydrated tool message.
   const hydrated = new Map<number, { text: string; parts: ChatCompletionContentPart[] }>();
-  const stubReason = new Map<number, 'context' | 'size'>();
+  const stubbed = new Set<number>();
 
-  let bytesUsed = 0;
-  let sizeCapped = false;
+  let tokensUsed = 0;
+  let tokenCapped = false;
 
   for (let r = records.length - 1; r >= 0; r--) {
     const record = records[r];
@@ -176,29 +153,55 @@ export async function hydrateVisionHistory(
     );
 
     if (budgetedReceipts.length === 0) {
-      stubReason.set(record.index, 'context');
+      stubbed.add(record.index);
       continue;
     }
-    if (sizeCapped) {
-      stubReason.set(record.index, 'size');
+    if (tokenCapped) {
+      stubbed.add(record.index);
       continue;
     }
 
     const lines: string[] = [];
     const parts: ChatCompletionContentPart[] = [];
-    let recordBytes = 0;
+    let recordTokens = 0;
 
     for (const receipt of budgetedReceipts) {
       const vpath = receipt.vpath;
+
+      // Stat instead of read: the common case (unchanged file, warm cache)
+      // needs no bytes at all.
+      let realPath: string;
+      let statSize: number;
+      let statMtime: number;
+      try {
+        realPath = vfs.resolveVirtual(vpath);
+        const stat = await Bun.file(realPath).stat();
+        statSize = stat.size;
+        statMtime = stat.mtime.getTime();
+      } catch {
+        lines.push(`${vpath}: file no longer exists — call see_image again`);
+        continue;
+      }
+
+      const unchanged =
+        statSize === receipt.source.bytes && statMtime === receipt.source.mtime_ms;
+
+      const cached = visionCache.get(receipt.sha);
+
+      if (unchanged && cached) {
+        // No file read, no prepareImage: the prepared bytes are already warm.
+        parts.push({
+          type: 'image_url',
+          image_url: { url: `data:${cached.mime};base64,${cached.b64}` },
+        });
+        recordTokens += receipt.tokens_est;
+        lines.push(`${vpath} (${cached.width}x${cached.height}, ~${receipt.tokens_est} tokens)`);
+        continue;
+      }
+
       let bytes: Uint8Array;
       try {
-        const realPath = vfs.resolveVirtual(vpath);
-        const file = Bun.file(realPath);
-        if (!(await file.exists())) {
-          lines.push(`${vpath}: file no longer exists — call see_image again`);
-          continue;
-        }
-        bytes = new Uint8Array(await file.arrayBuffer());
+        bytes = new Uint8Array(await Bun.file(realPath).arrayBuffer());
       } catch (err) {
         lines.push(`${vpath}: could not be re-read (${vfs.sanitizeErrorMessage(err)})`);
         continue;
@@ -216,11 +219,19 @@ export async function hydrateVisionHistory(
 
       const image = prepared;
       const b64 = Buffer.from(image.bytes).toString('base64');
+      visionCache.set(image.sha, {
+        b64,
+        mime: image.mime,
+        width: image.width,
+        height: image.height,
+        bytes: image.bytes.byteLength,
+      });
+
       parts.push({
         type: 'image_url',
         image_url: { url: `data:${image.mime};base64,${b64}` },
       });
-      recordBytes += b64.length;
+      recordTokens += receipt.tokens_est;
 
       lines.push(`${vpath} (${image.width}x${image.height}, ~${receipt.tokens_est} tokens)`);
       if (image.sha !== receipt.sha) {
@@ -230,15 +241,15 @@ export async function hydrateVisionHistory(
       }
     }
 
-    // Byte cap: once a message would push the cumulative sent-image bytes over
-    // the limit, stub it and every older message. The newest hydrated message
-    // is always allowed through even if it alone exceeds the cap.
-    if (bytesUsed > 0 && bytesUsed + recordBytes > settings.max_bytes_per_request) {
-      stubReason.set(record.index, 'size');
-      sizeCapped = true;
+    // Token budget: once a message would push the cumulative visual-token
+    // estimate over the limit, stub it and every older message. The newest
+    // hydrated message is always allowed through even if it alone exceeds it.
+    if (tokensUsed > 0 && tokensUsed + recordTokens > settings.max_live_image_tokens) {
+      stubbed.add(record.index);
+      tokenCapped = true;
       continue;
     }
-    bytesUsed += recordBytes;
+    tokensUsed += recordTokens;
 
     const header = `Images from see_image call ${record.toolCallId}:`;
     const text = lines.length === 1 ? `${header} ${lines[0]}` : `${header}\n${lines.join('\n')}`;
@@ -275,9 +286,8 @@ export async function hydrateVisionHistory(
       continue;
     }
 
-    const reason = stubReason.get(i) ?? 'context';
     const vpaths = record.receipts.map((rc) => rc.vpath);
-    result.push({ ...(message as object), content: stubContent(vpaths, reason) } as LiteLLMMessage);
+    result.push({ ...(message as object), content: stubContent(vpaths) } as LiteLLMMessage);
   }
 
   return result;

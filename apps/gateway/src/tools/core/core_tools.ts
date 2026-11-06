@@ -1,6 +1,8 @@
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
+import type { SeeImageReceipt } from '@podlet/types';
 import { VirtualFileSystem, resolveWithin } from '../../system/sandbox';
 import { prepareImage, normaliseMime, type PreparedImage } from '../../system/vision';
+import { visionCache } from '../../system/vision-cache';
 
 interface ITool {
   name: string;
@@ -433,24 +435,6 @@ class StageFilesTool implements ITool {
 // SeeImageTool
 // ---------------------------------------------------------------------------
 
-interface SeeImageReceipt {
-  vpath: string;
-  id: string;
-  sha: string;
-  source: { mime: string; width: number; height: number; bytes: number };
-  rendered: {
-    mime: string;
-    width: number;
-    height: number;
-    bytes: number;
-    max_edge: number;
-    format: 'png' | 'jpeg';
-    crop: { x: number; y: number; width: number; height: number; unit: 'px' | 'fraction' } | null;
-  };
-  tokens_est: number;
-  dropped_from_context: boolean;
-}
-
 class SeeImageTool implements ITool {
   readonly name = 'see_image';
   private vfs?: VirtualFileSystem;
@@ -546,6 +530,20 @@ class SeeImageTool implements ITool {
           }
 
           const image = prepared as PreparedImage;
+
+          // Cache the prepared bytes so the first hydration after this call is
+          // a hit with no file I/O and no decoding.
+          const b64 = Buffer.from(image.bytes).toString('base64');
+          visionCache.set(image.sha, {
+            b64,
+            mime: image.mime,
+            width: image.width,
+            height: image.height,
+            bytes: image.bytes.byteLength,
+          });
+
+          const stat = await file.stat();
+
           images.push({
             vpath: p,
             id: p,
@@ -555,6 +553,7 @@ class SeeImageTool implements ITool {
               width: image.sourceWidth,
               height: image.sourceHeight,
               bytes: sourceBytes.byteLength,
+              mtime_ms: stat.mtime.getTime(),
             },
             rendered: {
               mime: image.mime,
