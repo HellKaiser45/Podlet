@@ -2,6 +2,8 @@ import { createSignal } from "solid-js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type AgentThinking = "none" | "low" | "medium" | "high";
+
 export interface Agent {
   agentId: string;
   agentDescription: string;
@@ -10,6 +12,7 @@ export interface Agent {
   mcps: string[];
   skills: string[];
   subAgents: string[];
+  thinking?: AgentThinking;
 }
 
 export interface ModelConfig {
@@ -243,6 +246,7 @@ export async function createNewAgent(): Promise<Agent | null> {
     mcps: [],
     skills: [],
     subAgents: [],
+    thinking: "none",
   };
   const ok = await _createAgentApi(agent);
   if (ok) {

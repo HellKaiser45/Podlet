@@ -9,6 +9,7 @@
   "scripts": {
     "init": "bun run scripts/init.ts",
     "start": "bun run scripts/start.ts",
+    "models:upgrade": "bun run scripts/models-upgrade.ts",
     "dev:gateway": "bun --filter @podlet/gateway dev",
     "dev:web": "bun --filter @podlet/web dev"
   },

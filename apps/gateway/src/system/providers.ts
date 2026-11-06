@@ -127,8 +127,8 @@ export type ResolvedModel = {
   quirks: ProviderQuirks;
 };
 
-function unusable(reason: string): ResolvedModel {
-  return { health: { status: "unusable", reason }, headers: {}, quirks: {} };
+function unusable(reason: string, quirks: ProviderQuirks = {}): ResolvedModel {
+  return { health: { status: "unusable", reason }, headers: {}, quirks };
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -161,17 +161,26 @@ export function resolveModel(
   }
   const config = entry as Partial<ModelConfig> & Record<string, unknown>;
 
+  // An unusable entry still carries the quirks it declared: the quirk may be
+  // what explains a *different* check failing, and dropping it here would make
+  // the stored config and the resolved model disagree about the model entirely.
+  const storedQuirks: ProviderQuirks =
+    config.quirks !== null && typeof config.quirks === "object" && !Array.isArray(config.quirks)
+      ? { ...config.quirks }
+      : {};
+
   if (config.reasoning_effort !== undefined) {
     return unusable(
       `model '${name}': reasoning_effort is no longer a model setting — delete the "reasoning_effort" key; thinking is now per agent (agent.thinking: none|low|medium|high)`,
+      storedQuirks,
     );
   }
 
   if (!isNonEmptyString(config.provider)) {
-    return unusable(`model '${name}': provider must be a non-empty string`);
+    return unusable(`model '${name}': provider must be a non-empty string`, storedQuirks);
   }
   if (!isNonEmptyString(config.model)) {
-    return unusable(`model '${name}': model must be a non-empty string`);
+    return unusable(`model '${name}': model must be a non-empty string`, storedQuirks);
   }
 
   // --- provider: the table is the only knob, and a miss is terminal. There is
@@ -180,6 +189,7 @@ export function resolveModel(
   if (!row) {
     return unusable(
       `model '${name}': unknown provider '${config.provider}'; it is not in the supported provider table — use one of the supported provider names with an entry-level base_url pointing at your own endpoint, or set api_key_name for a non-standard key variable`,
+      storedQuirks,
     );
   }
   const protocol: Protocol = row.protocol;
@@ -190,6 +200,7 @@ export function resolveModel(
     if (!isNonEmptyString(config.base_url) || !isHttpUrl(config.base_url)) {
       return unusable(
         `model '${name}': base_url '${String(config.base_url)}' is not a valid http(s) URL`,
+        storedQuirks,
       );
     }
     baseUrl = config.base_url;
@@ -198,6 +209,7 @@ export function resolveModel(
   } else if (!CANONICAL_FOR[protocol].includes(config.provider)) {
     return unusable(
       `model '${name}': base_url required for provider '${config.provider}' (protocol '${protocol}')`,
+      storedQuirks,
     );
   }
 
@@ -206,7 +218,7 @@ export function resolveModel(
   let keySource: KeySource;
   if (config.api_key_name !== undefined) {
     if (!isNonEmptyString(config.api_key_name)) {
-      return unusable(`model '${name}': api_key_name must be a non-empty string`);
+      return unusable(`model '${name}': api_key_name must be a non-empty string`, storedQuirks);
     }
     keyVar = config.api_key_name;
     keySource = "api_key_name";
@@ -223,23 +235,23 @@ export function resolveModel(
   if (apiKey === undefined) {
     const optional = config.api_key_optional === true || row.api_key_optional === true;
     if (!optional) {
-      return unusable(`model '${name}': no API key — set ${keyVar} (from ${keySource})`);
+      return unusable(`model '${name}': no API key — set ${keyVar} (from ${keySource})`, storedQuirks);
     }
   }
 
   if (config.headers !== undefined && (config.headers === null || typeof config.headers !== "object" || Array.isArray(config.headers))) {
-    return unusable(`model '${name}': headers must be an object of string values`);
+    return unusable(`model '${name}': headers must be an object of string values`, storedQuirks);
   }
   const headers: Record<string, string> = { ...(row.headers ?? {}) };
   for (const [key, value] of Object.entries(config.headers ?? {})) {
     if (typeof value !== "string") {
-      return unusable(`model '${name}': headers['${key}'] must be a string`);
+      return unusable(`model '${name}': headers['${key}'] must be a string`, storedQuirks);
     }
     headers[key] = value;
   }
 
   if (config.quirks !== undefined && (config.quirks === null || typeof config.quirks !== "object" || Array.isArray(config.quirks))) {
-    return unusable(`model '${name}': quirks must be an object`);
+    return unusable(`model '${name}': quirks must be an object`, storedQuirks);
   }
 
   return {

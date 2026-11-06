@@ -12,6 +12,7 @@ import {
   initiateChat,
 } from "../../stores/agent-builder.store";
 import ModelSelector from "./ModelSelector";
+import ThinkingSelector from "./ThinkingSelector";
 import PromptEditor from "./PromptEditor";
 import SkillPicker from "./SkillPicker";
 import McpPicker from "./McpPicker";
@@ -181,6 +182,12 @@ const AgentDetail: Component = () => {
         <div class="px-4 py-3 border-b border-base-content/10">
           <SectionLabel label="MODEL" />
           <ModelSelector />
+        </div>
+
+        {/* Thinking */}
+        <div class="px-4 py-3 border-b border-base-content/10">
+          <SectionLabel label="THINKING" />
+          <ThinkingSelector />
         </div>
 
         {/* Core Directives */}

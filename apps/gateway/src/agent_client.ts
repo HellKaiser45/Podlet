@@ -4,6 +4,7 @@ import AppContainer from './runtime';
 import { getCoreToolDefinitions } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
 import { hydrateVisionHistory } from './system/vision-hydrate';
+import { thinkingQuirkConflict } from './system/providers';
 
 export class AgentClient {
   private readonly streamEndpoint = '/chat/stream'
@@ -16,6 +17,9 @@ export class AgentClient {
   private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<AgentRequest> {
     const agent = this.appContainer.agentManager.agents[agentId];
     const model = this.appContainer.modelManager.models[agent.model];
+    if (!model) {
+      throw new Error(`model '${agent.model}': not found in models.json`);
+    }
     const tools = [
       ...this.appContainer.mcpManager.getTools(agent.mcps || []),
       ...getCoreToolDefinitions(),
@@ -39,13 +43,32 @@ export class AgentClient {
 
     const hydrated = await hydrateVisionHistory(history, vfileSystem);
 
+    // Thinking is an agent setting, positional on the provider's own scale: the
+    // agent's value is what travels as `reasoning_effort`; `none` (and unset)
+    // sends nothing at all. A model whose provider rejects the parameter may not
+    // silently drop a capability the agent asked for, so that combination fails
+    // here — before any request is made.
+    const thinking = agent.thinking ?? "none";
+    const resolved = this.appContainer.modelManager.resolve(agent.model);
+    // A model already classified `unusable` is never dispatched: its reason
+    // names the offending field and the fix, and sending the request anyway
+    // replaces that with an opaque provider error. Runs before the quirk check
+    // so a legacy-key model reports the real problem.
+    if (resolved && resolved.health.status === "unusable") {
+      throw new Error(resolved.health.reason ?? `model '${agent.model}': unusable`);
+    }
+    if (resolved) {
+      const conflict = thinkingQuirkConflict(agent.model, agentId, agent.thinking, resolved);
+      if (conflict) throw new Error(conflict);
+    }
+
     return {
       provider: model.provider,
       model: model.model,
       configpath: this.appContainer.initConfig.podletDir,
       api_key_name: model.api_key_name,
       temperature: model.temperature ?? undefined,
-      reasoning_effort: model.reasoning_effort ?? undefined,
+      reasoning_effort: thinking === "none" ? undefined : thinking,
       base_url: model.base_url ?? undefined,
       system_prompt: systemPrompt + `\n\n` + updatedSystemPrompt,
       history: hydrated as AgentRequest['history'],
