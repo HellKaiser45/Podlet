@@ -6,6 +6,43 @@ import { randomUUIDv7 } from "bun";
 import { VirtualFileSystem } from "./system/sandbox";
 
 
+/**
+ * Reasoning keys that must never leave the in-loop frame history.
+ * H1/H4: the loop (and the suspension checkpoint) keeps them; persistence and
+ * the RUN_FINISHED payload do not.
+ */
+const REASONING_KEYS = ["reasoning_content", "thinking_blocks"] as const;
+
+/**
+ * Returns a copy of `message` with `reasoning_content` / `thinking_blocks`
+ * removed. Never mutates its argument: the frame history the loop still reads
+ * is left untouched.
+ */
+export function stripReasoning(message: LiteLLMMessage): LiteLLMMessage {
+  const copy: Record<string, unknown> = { ...(message as unknown as Record<string, unknown>) };
+  for (const key of REASONING_KEYS) {
+    delete copy[key];
+  }
+  return copy as unknown as LiteLLMMessage;
+}
+
+/**
+ * H3/H6 projection: `role==='user' || (role==='assistant' && no tool_calls)`,
+ * order-preserving, with reasoning stripped from the surviving assistant
+ * messages and nothing else touched. Applied to the run_history row and to the
+ * `RUN_FINISHED` payload; never to `frames.history` (H4).
+ */
+export function projectHistoryForPersistence(history: LiteLLMMessage[]): LiteLLMMessage[] {
+  return history
+    .filter(m => {
+      if (m.role === 'user') return true
+      if (m.role === 'assistant' && !('tool_calls' in m && (m as any).tool_calls?.length)) return true
+      return false
+    })
+    .map(m => (m.role === 'assistant' ? stripReasoning(m) : m));
+}
+
+
 function detectnewleaf(input: AgentStackFrame): boolean {
   if ((!input.pending_approvals || input.pending_approvals.length === 0) && input.status === "suspended") {
     return true
@@ -50,11 +87,7 @@ export class AgentOrchestrator {
   }
 
   async EndingEventHandler(input: RunAgentInput, res: AgentStackFrame) {
-    const conversationHistory = res.history.filter(m => {
-      if (m.role === 'user') return true
-      if (m.role === 'assistant' && !('tool_calls' in m && (m as any).tool_calls?.length)) return true
-      return false
-    })
+    const conversationHistory = projectHistoryForPersistence(res.history)
     if (res.status === 'error' || res.status === 'running') {
       console.error(`[Orchestrator] Run ${input.runId} ended with status: ${res.status}`);
       // The loop already emitted a descriptive RUN_ERROR for 'error' status
@@ -75,7 +108,9 @@ export class AgentOrchestrator {
         type: EventType.RUN_FINISHED,
         threadId: input.threadId,
         runId: input.runId,
-        result: res,
+        // H6: shallow copy so the live frame object is never handed to the
+        // browser with its in-loop reasoning still attached.
+        result: { ...res, history: conversationHistory },
       })
       await this.appContainer.historyManager.update(input.runId, conversationHistory)
     }

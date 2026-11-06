@@ -1,6 +1,16 @@
 import { Elysia, t } from 'elysia';
 import AppContainer from '../runtime';
 
+// Positional tiers on the provider's own scale: low = lowest, medium = middle,
+// high = highest. Default `none`. Elysia strips undeclared body keys, so this
+// union must be declared on both bodies or a client would be coerced to `none`.
+const AgentThinkingSchema = t.Optional(t.Union([
+  t.Literal('none'),
+  t.Literal('low'),
+  t.Literal('medium'),
+  t.Literal('high'),
+]));
+
 export default function agentsRoutes(container: AppContainer) {
   return new Elysia({ prefix: '/agents' })
     // GET all agents
@@ -62,6 +72,7 @@ export default function agentsRoutes(container: AppContainer) {
         skills: t.Optional(t.Array(t.String())),
         subAgents: t.Optional(t.Array(t.String())),
         response_format: t.Optional(t.Record(t.String(), t.Any())),
+        thinking: AgentThinkingSchema,
       })
     })
     
@@ -102,6 +113,7 @@ export default function agentsRoutes(container: AppContainer) {
         skills: t.Optional(t.Array(t.String())),
         subAgents: t.Optional(t.Array(t.String())),
         response_format: t.Optional(t.Record(t.String(), t.Any())),
+        thinking: AgentThinkingSchema,
       })
     })
     

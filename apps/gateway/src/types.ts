@@ -158,14 +158,51 @@ export type AgentStreamEvent =
   | { type: "error"; error: string; error_type?: string };
 
 /** ~/.podelet/models.json */
+
+/** The wire protocol an entry is spoken to with. Resolved from `provider` (see system/providers.ts). */
+export type Protocol = "openai" | "anthropic" | "google";
+
+/**
+ * Per-model opt-outs. These are the only tolerance left now that litellm's
+ * `drop_params` net is gone: an undeclared quirk means the parameter is sent as-is.
+ */
+export interface ProviderQuirks {
+  no_cache_control?: boolean;
+  no_reasoning_effort?: boolean;
+  no_stream_options?: boolean;
+  anthropic_static_budget?: boolean;
+  /** Emit `thinkingBudget: 0` for google when `agent.thinking` is `none`. */
+  disable_thinking_on_none?: boolean;
+}
+
 export interface ModelConfig {
+  /** Provider name as documented by Podlet; looked up verbatim in PROVIDER_TABLE. */
   provider: string;
+  /** Model id passed to the provider SDK. */
   model: string;
   api_key_name?: string;
   temperature?: number;
+  /**
+   * @deprecated No longer read: thinking moved to the agent (`Agent.thinking`).
+   * Kept only so `agent_client.ts` (deleted in Phase 3) still compiles; a stored
+   * value makes the model unusable until the key is deleted.
+   */
   reasoning_effort?: ReasoningEffort;
   base_url?: string;
+  headers?: Record<string, string>;
+  quirks?: ProviderQuirks;
+  /** The chosen key variable may be absent (local inference servers). */
+  api_key_optional?: boolean;
 }
+
+/** Response-only sidecar; never part of the stored config. */
+export interface Health {
+  status: "ok" | "warning" | "unusable";
+  /** Present iff `status !== "ok"`, and names the offending field plus the fix. */
+  reason?: string;
+}
+
+export type ModelWithHealth = ModelConfig & { health: Health };
 
 /** ~/.podelet/agents/*.json */
 export interface Agent {
@@ -185,7 +222,21 @@ export interface Agent {
   subAgents?: string[];
   /** if we want a particular output format */
   response_format?: Record<string, any>;
+  /**
+   * Thinking level, positional on the provider's own scale: `low` is its lowest,
+   * `medium` its middle, `high` its highest. Default `none` (nothing is sent).
+   */
+  thinking?: AgentThinking;
 }
+
+export type AgentThinking = "low" | "medium" | "high" | "none";
+
+export const AGENT_THINKING_LEVELS: AgentThinking[] = ["none", "low", "medium", "high"];
+
+export const DEFAULT_AGENT_THINKING: AgentThinking = "none";
+
+/** Response-only sidecar; never written into the agent JSON. */
+export type AgentWithHealth = Agent & { health: Health };
 
 //===================================================================================
 // File system related types
