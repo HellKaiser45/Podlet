@@ -12,7 +12,7 @@ export default function mcpsRoutes(container: AppContainer) {
       const result: Record<string, { tools: string[] }> = {};
       for (const [name, instance] of Object.entries(running)) {
         result[name] = {
-          tools: instance.tools.map(t => t.function?.name ?? t.name ?? 'unknown')
+          tools: instance.tools.map(t => 'function' in t ? t.function.name : t.custom.name)
         };
       }
       return result;

@@ -65,7 +65,7 @@ export class AgentToolSuspended extends Error {
 /** MCP config */
 export interface MCPConfig {
   command: string;
-  args: string[];
+  args?: string[];
   env?: Record<string, string>;
 }
 
@@ -190,13 +190,6 @@ export interface Agent {
   response_format?: Record<string, any>;
 }
 
-/** ~/.podelet/mcps.json (Standard MCP format) */
-export interface MCPServerConfig {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
 //===================================================================================
 // File system related types
 // ==================================================================================
@@ -227,7 +220,7 @@ export interface LiteLLMDelta extends ChatCompletionChunk.Choice.Delta {
 export interface ThinkingAnthropic {
   type: "thinking",
   thinking: string;
-  signature: "string";
+  signature: string;
 }
 
 //======================================================================
@@ -243,12 +236,6 @@ export interface PendingApproval {
   requires_approval: boolean;
   approval_status: ApprovalStatus;
   description?: string;
-}
-
-export interface HILConfig {
-  enabled: boolean;
-  sensitive_tools: string[];
-  auto_unapprove_editing_tools: boolean;
 }
 
 
@@ -291,7 +278,6 @@ export interface AgentStackFrame {
 export enum AgentState {
   INITIALIZING = 'INITIALIZING',
   CALLING_LLM = 'CALLING_LLM',
-  PROCESSING_RESPONSE = 'PROCESSING_RESPONSE',
   EXECUTING_TOOLS = 'EXECUTING_TOOLS',
   AWAITING_APPROVAL = 'AWAITING_APPROVAL',
   COMPLETED = 'COMPLETED',

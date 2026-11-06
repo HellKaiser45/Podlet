@@ -1,5 +1,5 @@
 import { frames } from './schemas';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { AgentStackFrame } from '../types';
 import { createDB } from './db';
 
@@ -77,19 +77,7 @@ export class FrameCRUDClient {
       .from(frames)
       .where(and(eq(frames.runId, runId), eq(frames.status, status)));
 
-    return results.map(this.toAgentStackFrame);
-  }
-
-  /**
-   * Get child frames of a parent
-   */
-  async getChildren(parentFrameId: string): Promise<AgentStackFrame[]> {
-    const results = await this.db
-      .select()
-      .from(frames)
-      .where(eq(frames.parentFrameId, parentFrameId));
-
-    return results.map(this.toAgentStackFrame);
+    return results.map(row => this.toAgentStackFrame(row));
   }
 
   /**
@@ -106,36 +94,7 @@ export class FrameCRUDClient {
 
     return allFrames
       .filter(f => !parentIds.has(f.frameId))
-      .map(this.toAgentStackFrame);
-  }
-
-  /**
-   * Get root frame (frame with no parent) for a run
-   */
-  async getRootFrame(runId: string): Promise<AgentStackFrame | null> {
-    const results = await this.db
-      .select()
-      .from(frames)
-      .where(and(eq(frames.runId, runId), isNull(frames.parentFrameId)));
-
-    return results[0] ? this.toAgentStackFrame(results[0]) : null;
-  }
-
-  /**
-   * Batch update multiple frames (optimized)
-   */
-  async batchUpdate(updates: Array<{ frameId: string; data: Partial<AgentStackFrame> }>): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      for (const { frameId, data } of updates) {
-        const updateData: Record<string, any> = { updatedAt: new Date() };
-
-        if (data.status) updateData.status = data.status;
-        if (data.history) updateData.history = data.history;
-        if (data.pending_approvals) updateData.pendingApprovals = data.pending_approvals;
-
-        await tx.update(frames).set(updateData).where(eq(frames.frameId, frameId));
-      }
-    });
+      .map(row => this.toAgentStackFrame(row));
   }
 
   /**
@@ -147,7 +106,7 @@ export class FrameCRUDClient {
       parent_frame_id: row.parentFrameId ?? undefined,
       answering_tool_call_id: row.answeringToolCallId ?? undefined,
       agent_id: row.agentId,
-      status: row.status as "running" | "suspended" | "completed",
+      status: row.status as AgentStackFrame["status"],
       history: row.history,
       pending_approvals: row.pendingApprovals,
     };

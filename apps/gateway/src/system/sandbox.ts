@@ -789,9 +789,13 @@ ${tree}
             );
 
             try {
-              const context = canvas.getContext("2d");
+              // pdfjs v5 requires the canvas element alongside the context. The
+              // project compiles without DOM lib types, so the parameter type is
+              // borrowed from pdfjs itself rather than naming a DOM interface.
+              type RenderParams = Parameters<typeof page.render>[0];
               await page.render({
-                canvasContext: context as unknown as CanvasRenderingContext2D,
+                canvas: canvas as unknown as RenderParams["canvas"],
+                canvasContext: canvas.getContext("2d") as unknown as RenderParams["canvasContext"],
                 viewport,
               }).promise;
 

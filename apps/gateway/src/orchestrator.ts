@@ -202,9 +202,6 @@ export class AgentOrchestrator {
         if (approval.approval_status.approval === 'rejected') {
           approval.approval_status.feedback = decision.feedback;
         }
-
-        if (approval.tool_call.type === "function") {
-        }
       }
     }
   }

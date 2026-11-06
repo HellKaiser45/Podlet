@@ -77,7 +77,10 @@ export default class MCPManager {
     let mcpId: string | null = null;
     let actualToolName: string | null = null;
     for (const [id, instance] of Object.entries(this.runningInstances)) {
-      const found = instance.tools.find(t => t.type === 'function' && t.function.name === toolname);
+      const found = instance.tools.find(
+        (t): t is Extract<ChatCompletionTool, { type: 'function' }> =>
+          t.type === 'function' && t.function.name === toolname,
+      );
       if (found) {
         mcpId = id;
         actualToolName = found.function.name.slice(id.length + 1);

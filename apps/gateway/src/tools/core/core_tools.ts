@@ -9,12 +9,8 @@ interface ITool {
   setVfs?(vfs: VirtualFileSystem): void;
 }
 
-const UNREADABLE_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
-  '.pdf', '.woff', '.woff2', '.ttf', '.eot', '.otf',
-  '.mp4', '.mp3', '.wav', '.ogg', '.zip', '.tar', '.gz', '.bin', '.exe',
-]);
-
+// Extensions that read_file refuses. Binary content is unreadable as text and
+// would only waste context, so it is rejected with a pointer to the right tool.
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
   '.pdf', '.woff', '.woff2', '.ttf', '.eot', '.otf',
@@ -83,10 +79,10 @@ class ReadFileTool implements ITool {
     const entries = await Promise.all(
       paths.map(async (p): Promise<[string, string]> => {
         const ext = p.slice(p.lastIndexOf('.')).toLowerCase();
-        if (IMAGE_EXTENSIONS.has(ext)) {
+        if (IMAGE_MIME_BY_EXT[ext]) {
           return [p, `error: cannot read binary file "${p}" (${ext}) — use see_image to view it`];
         }
-        if (UNREADABLE_EXTENSIONS.has(ext)) {
+        if (BINARY_EXTENSIONS.has(ext)) {
           return [p, `error: cannot read binary file "${p}" (${ext})`];
         }
         try {
@@ -600,14 +596,11 @@ export class CoreToolsManager {
 
   constructor(virtualFileSystem?: VirtualFileSystem) {
     // Always register ALL tools so getToolDefinitions() works without VFS
-    this.tools = new Map([
-      [this.readFileTool.name, this.readFileTool],
-      [this.shellTool.name, this.shellTool],
-      [this.writeFileTool.name, this.writeFileTool],
-      [this.applyDiffTool.name, this.applyDiffTool],
-      [this.stageFilesTool.name, this.stageFilesTool],
-      [this.seeImageTool.name, this.seeImageTool],
-    ]);
+    const allTools: ITool[] = [
+      this.readFileTool, this.shellTool, this.writeFileTool,
+      this.applyDiffTool, this.stageFilesTool, this.seeImageTool,
+    ];
+    this.tools = new Map(allTools.map(tool => [tool.name, tool]));
 
     if (virtualFileSystem) this.setVirtualFileSystem(virtualFileSystem);
   }
@@ -625,10 +618,6 @@ export class CoreToolsManager {
 
   isCoreTool(toolName: string): boolean { return this.tools.has(toolName); }
   getToolDefinitions(): ChatCompletionTool[] { return [...this.tools.values()].map(t => t.definition); }
-  getToolNames(): string[] { return [...this.tools.keys()]; }
-  filterCoreTools(toolNames: string[]): string[] { return toolNames.filter(n => this.isCoreTool(n)); }
-  filterNonCoreTools(toolNames: string[]): string[] { return toolNames.filter(n => !this.isCoreTool(n)); }
-  hasCoreTools(toolNames: string[]): boolean { return toolNames.some(n => this.isCoreTool(n)); }
 
   async execute(
     toolName: string,
@@ -644,22 +633,10 @@ export class CoreToolsManager {
     if (toolName === 'execute_shell') {
       if (!this.vfs) return this.makeShellError(toolCallId, 'VirtualFileSystem not initialized');
 
-      // The process cwd is the run root, so `cat workspace/foo` and
-      // `cat artifacts/foo` work as typed. An explicit working_directory is
-      // still validated: it must resolve inside the run root.
-      let resolvedArgs = args;
-      const wd = args.working_directory as string | undefined;
-      if (typeof wd === 'string' && wd.trim() !== '') {
-        try {
-          resolvedArgs = { ...args, working_directory: resolveWithin(this.vfs.runRoot, wd) };
-        } catch (err) {
-          return this.makeShellError(toolCallId,
-            err instanceof Error ? err.message : String(err)
-          );
-        }
-      }
-
-      const result = await tool.execute(resolvedArgs) as ShellExecutionResult;
+      // ShellTool itself resolves `working_directory` against the run root and
+      // defaults to it, so arguments are forwarded untouched. Only the output
+      // needs sanitising, because commands like `pwd` print real paths.
+      const result = await tool.execute(args) as ShellExecutionResult;
 
       // Sanitize stdout and stderr — commands like `pwd` or `ls -la` will
       // print real filesystem paths that must not reach the model.
