@@ -6,7 +6,7 @@ import { FileUploadSchema } from '../types';
 const vfsCache = new Map<string, VirtualFileSystem>();
 
 function getVFS(rootDir: string, runId: string): VirtualFileSystem {
-  const key = runId;
+  const key = `${rootDir}:${runId}`;
   let vfs = vfsCache.get(key);
   if (!vfs) {
     vfs = new VirtualFileSystem(rootDir, runId);
@@ -38,7 +38,6 @@ export default function filesRoutes(container: AppContainer) {
       const virtualManager = getVFS(container.initConfig.podletDir, body.runId)
 
       const result = await virtualManager.upload(body)
-      console.log('upload result: ', result)
 
       return result
     }, {

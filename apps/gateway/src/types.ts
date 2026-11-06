@@ -25,7 +25,6 @@ export const RunAgentInputSchema = t.Object({
   threadId: t.String(),
   runId: t.String(),
   parentRunId: t.Optional(t.String()),
-  cwd: t.Optional(t.String()),
   message: t.Unsafe<ChatCompletionUserMessageParam>(t.Any()),
   attachmentIds: t.Optional(t.Array(t.String())),
   agentId: t.String(),
@@ -35,7 +34,6 @@ export const RunAgentInputSchema = t.Object({
 // - - - - - - - 
 export const FileUploadSchema = t.Object({
   runId: t.String(),
-  cwd: t.Optional(t.String()),
   files: t.Files()
 })
 
@@ -118,7 +116,6 @@ export interface RunAgentInput {
   parentRunId?: string
   message: ChatCompletionUserMessageParam
   attachmentIds?: string[]
-  cwd?: string
   agentId: string
   decision?: Record<string, UserDecision>
 }

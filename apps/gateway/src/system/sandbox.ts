@@ -272,14 +272,13 @@ export class VirtualFileSystem {
   constructor(
     rootDir: string,
     runId: string,
-    _cwd?: string,
-    skillmanager?: SkillsManager,
-    skills: string[] = [],
+    options: { skillManager?: SkillsManager; skills?: string[] } = {},
   ) {
     this.rootDir = rootDir;
     this.runId = runId;
-    void _cwd; // legacy: the run root is the cwd now
-    this.allowedSkills = skills.filter(name => !skillmanager || !!skillmanager.availableSkills[name]);
+    this.allowedSkills = (options.skills ?? []).filter(
+      name => !options.skillManager || !!options.skillManager.availableSkills[name],
+    );
   }
 
   // ---------------------------------------------------------------------------

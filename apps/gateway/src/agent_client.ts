@@ -1,7 +1,7 @@
 import type { ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageToolCall } from 'openai/resources/chat/completions';
 import type { AgentRequest, AgentStreamEvent, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
 import AppContainer from './runtime';
-import { CoreToolsManager } from './tools/core/core_tools';
+import { getCoreToolDefinitions } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
 import { hydrateVisionHistory } from './system/vision-hydrate';
 
@@ -16,10 +16,9 @@ export class AgentClient {
   private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<AgentRequest> {
     const agent = this.appContainer.agentManager.agents[agentId];
     const model = this.appContainer.modelManager.models[agent.model];
-    const coreTools = new CoreToolsManager(vfileSystem);
     const tools = [
       ...this.appContainer.mcpManager.getTools(agent.mcps || []),
-      ...coreTools.getToolDefinitions(),
+      ...getCoreToolDefinitions(),
       ...await this.appContainer.agentToolsManager.getAgentAsToolDefinition(agent.subAgents || []),
     ];
 

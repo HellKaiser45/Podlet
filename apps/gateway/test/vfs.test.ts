@@ -45,7 +45,7 @@ beforeAll(async () => {
   await writeFile(join(escapeDir, 'secret.txt'), 'secret');
 
   ctx = { podletDir, runId, allowedSkills };
-  vfs = new VirtualFileSystem(podletDir, runId, undefined, undefined, allowedSkills);
+  vfs = new VirtualFileSystem(podletDir, runId, { skills: allowedSkills });
 });
 
 afterAll(async () => {

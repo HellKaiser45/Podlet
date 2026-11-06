@@ -678,5 +678,16 @@ export class CoreToolsManager {
       }),
     };
   }
+}
 
+let cachedDefinitions: ChatCompletionTool[] | null = null;
+
+/**
+ * Tool schemas for the current core tool set. Definitions do not depend on a
+ * VFS, so they are built once instead of constructing a throwaway
+ * CoreToolsManager on every request.
+ */
+export function getCoreToolDefinitions(): ChatCompletionTool[] {
+  cachedDefinitions ??= new CoreToolsManager().getToolDefinitions();
+  return cachedDefinitions;
 }

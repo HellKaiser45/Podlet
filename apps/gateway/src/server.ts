@@ -22,7 +22,6 @@ export function chatRoutes(container: AppContainer) {
         threadId: body.threadId,
         runId: body.runId,
         parentRunId: body.parentRunId,
-        cwd: body.cwd,
         message: body.message,
         attachmentIds: body.attachmentIds,
         agentId: body.agentId,
