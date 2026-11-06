@@ -34,14 +34,14 @@ Open **<http://localhost:3000>**. *(Docker serves the prebuilt frontend through 
 
 ### ⚡ From source
 
-**Prerequisites:** [Bun](https://bun.sh) and Python 3.12.
+**Prerequisites:** [Bun](https://bun.sh).
 
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
 bun run init      # one-time setup (seeds ~/.podlet)
-bun run start     # starts all three services
+bun run start     # starts the gateway and the web UI
 ```
 
 Add at least one provider key to `~/.podlet/.env` (see [Configuration](#env)):
@@ -102,7 +102,7 @@ You can customize either before or after that first copy:
 |---|---|---|---|
 | `server.port` | number | `3000` | Gateway API port. |
 | `server.host` | string | `"127.0.0.1"` | Bind address. Docker forces `0.0.0.0`. |
-| `server.pythonPort` | number | `8000` | Python backend port (native). |
+| `server.pythonPort` | number | `8000` | Legacy port setting; no service listens on it anymore. |
 | `server.webPort` | number | `3002` | Web UI port (native only). Also derives the CORS origin. |
 | `database.path` | string | `"podlet.db"` | SQLite file name inside `~/.podlet`. |
 | `features.safemode` | boolean | `false` | Human-in-the-Loop approval for destructive tool calls. |
@@ -115,7 +115,7 @@ You can customize either before or after that first copy:
 | Setting | Native | Docker |
 |---|---|---|
 | `server.port` | 🟢 adjustable | 🔴 keep at `3000` — the compose mapping targets it |
-| `server.pythonPort` | 🟢 adjustable | 🔴 keep at `8000` — agent-core listens there |
+| `server.pythonPort` | ⚪ no effect | ⚪ no effect — nothing listens on it |
 | `server.webPort` | 🟢 adjustable | ⚪ no effect — the gateway serves the prebuilt bundle |
 | `server.host` | 🟢 adjustable | 🔵 forced to `0.0.0.0` (handled automatically, not user-configurable) |
 
@@ -124,13 +124,13 @@ You can customize either before or after that first copy:
 The compose file maps the gateway as `3000:3000`. To expose Podlet on a different port on the host, edit that line in `compose.yml` (for example `8080:3000`) and run `docker compose up -d` again.
 
 > [!WARNING]
-> Under Docker, changing `server.port` or `server.pythonPort` in `config.json` breaks the app silently — the compose mapping and the agent-core image depend on the fixed values. Use the compose port line to change the exposed port instead.
+> Under Docker, changing `server.port` in `config.json` breaks the app silently — the compose mapping depends on the fixed value. Use the compose port line to change the exposed port instead.
 
 ---
 
 ### `.env`
 
-API keys live in `~/.podlet/.env`, one per provider (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). The Python core reads this file on every request — edits apply without restarting.
+API keys live in `~/.podlet/.env`, one per provider (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). The gateway loads this file on startup itself — there is no separate service to configure.
 
 ### `models.json`
 
@@ -143,7 +143,7 @@ Maps the model ids used by agents to actual provider models:
 }
 ```
 
-The `api_key_name` field is only necessary if the provider is a "small, recent, or niche" provider not officially supported by [litellm](https://docs.litellm.ai/docs/providers), or if you want a custom `api_key_name`.
+The `api_key_name` field is only necessary if the provider is a "small, recent, or niche" provider outside the built-in provider table, or if you want a custom `api_key_name`.
 
 Agent files reference these entries by key (`"model": "smart"`) — see [Agent Configuration](#agent-configuration) below.
 
@@ -216,7 +216,7 @@ Agents cannot touch anything outside these roots or the skills folder.
 | Layer | Stack |
 |---|---|
 | Gateway | Bun, Elysia, Drizzle ORM + SQLite, MCP TypeScript SDK, Zod |
-| Agent Core | Python 3.12, FastAPI, litellm, uvicorn, python-dotenv |
+| LLM Providers | `@ai-sdk` (OpenAI, Anthropic, Google), called in-process by the gateway |
 | Frontend | SolidJS, Vite |
 
 ---

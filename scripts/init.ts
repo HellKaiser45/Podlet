@@ -7,7 +7,6 @@ import { join } from 'node:path';
 
 const repoRoot = path.resolve(import.meta.dir, '..');
 const podletDir = path.join(os.homedir(), '.podlet');
-const isWin = process.platform === 'win32';
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -63,33 +62,9 @@ async function main() {
     process.exit(1);
   }
 
-  const pyCmd = isWin ? 'python' : 'python3';
-  try {
-    const raw = getOutput(pyCmd, ['--version']);
-    const m = raw.match(/(\d+)\.(\d+)/);
-    if (!m || +m[1] < 3 || (+m[1] === 3 && +m[2] < 10)) {
-      throw new Error(`Python >= 3.10 required, got: ${raw}`);
-    }
-    console.log(`  [ok] ${raw}`);
-  } catch (e: any) {
-    console.error(`  [!] ${e.message || 'Python 3.10+ not found.'} Install: https://www.python.org`);
-    process.exit(1);
-  }
-
   // ── JS deps ──────────────────────────────────────────
   console.log('\n  Installing JS dependencies...');
   await run('bun', ['install'], { cwd: repoRoot });
-
-  // ── Python venv ──────────────────────────────────────
-  console.log('  Setting up Python virtual environment...');
-  const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
-  if (!existsSync(venvDir)) {
-    await run(pyCmd, ['-m', 'venv', venvDir], { cwd: repoRoot });
-  }
-  const pip = isWin
-    ? path.join(venvDir, 'Scripts', 'pip.exe')
-    : path.join(venvDir, 'bin', 'pip');
-  await run(pip, ['install', '-r', path.join(repoRoot, 'agent_core_py', 'requirements.txt')], { cwd: repoRoot });
 
   // ── Existing config check ────────────────────────────
   if (existsSync(path.join(podletDir, 'config.json'))) {

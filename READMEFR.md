@@ -34,14 +34,14 @@ Ouvrez **<http://localhost:3000>**. *(Docker sert le frontend précompilé via l
 
 ### ⚡ Depuis les sources
 
-**Prérequis :** [Bun](https://bun.sh) et Python 3.12.
+**Prérequis :** [Bun](https://bun.sh).
 
 ```bash
 git clone https://github.com/HellKaiser45/Podlet.git
 cd Podlet
 bun install
 bun run init      # installation initiale (une seule fois, initialise ~/.podlet)
-bun run start     # démarre les trois services
+bun run start     # démarre le gateway et l'interface web
 ```
 
 Ajoutez au moins une clé de fournisseur dans `~/.podlet/.env` (voir [Configuration](#configuration)) :
@@ -102,7 +102,7 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 |---|---|---|---|
 | `server.port` | nombre | `3000` | Port de l'API de la gateway. |
 | `server.host` | chaîne | `"127.0.0.1"` | Adresse d'écoute. Docker force `0.0.0.0`. |
-| `server.pythonPort` | nombre | `8000` | Port du backend Python (mode natif). |
+| `server.pythonPort` | nombre | `8000` | Port historique ; plus aucun service n'écoute dessus. |
 | `server.webPort` | nombre | `3002` | Port de l'interface web (natif uniquement). Détermine aussi l'origine CORS. |
 | `database.path` | chaîne | `"podlet.db"` | Nom du fichier SQLite dans `~/.podlet`. |
 | `features.safemode` | booléen | `false` | Validation humaine (Human-in-the-Loop) pour les appels d'outils destructeurs. |
@@ -115,7 +115,7 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 | Paramètre | Natif | Docker |
 |---|---|---|
 | `server.port` | 🟢 modifiable | 🔴 laisser à `3000` — le mapping du compose cible cette valeur |
-| `server.pythonPort` | 🟢 modifiable | 🔴 laisser à `8000` — agent-core écoute sur ce port |
+| `server.pythonPort` | ⚪ sans effet | ⚪ sans effet — rien n'écoute dessus |
 | `server.webPort` | 🟢 modifiable | ⚪ sans effet — la gateway sert le bundle précompilé |
 | `server.host` | 🟢 modifiable | 🔵 forcé à `0.0.0.0` (géré automatiquement, non configurable par l'utilisateur) |
 
@@ -124,13 +124,13 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 Le fichier compose mappe la gateway en `3000:3000`. Pour exposer Podlet sur un autre port de la machine hôte, modifiez cette ligne dans `compose.yml` (par exemple `8080:3000`) puis relancez `docker compose up -d`.
 
 > [!WARNING]
-> Sous Docker, modifier `server.port` ou `server.pythonPort` dans `config.json` casse l'application silencieusement — le mapping du compose et l'image agent-core dépendent de ces valeurs fixes. Utilisez plutôt la ligne de port du compose pour changer le port exposé.
+> Sous Docker, modifier `server.port` dans `config.json` casse l'application silencieusement — le mapping du compose dépend de cette valeur fixe. Utilisez plutôt la ligne de port du compose pour changer le port exposé.
 
 ---
 
 ### `.env`
 
-Les clés d'API se trouvent dans `~/.podlet/.env`, une par fournisseur (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). Le core Python lit ce fichier à chaque requête — les modifications s'appliquent sans redémarrage.
+Les clés d'API se trouvent dans `~/.podlet/.env`, une par fournisseur (`OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, ...). Le gateway charge ce fichier lui-même au démarrage — il n'y a plus de service séparé à configurer.
 
 ### `models.json`
 
@@ -143,7 +143,7 @@ Fait correspondre les identifiants de modèles utilisés par les agents aux mod�
 }
 ```
 
-Le champ `api_key_name` n'est nécessaire que si le fournisseur est « petit, récent ou de niche » et n'est pas officiellement pris en charge par [litellm](https://docs.litellm.ai/docs/providers), ou si vous souhaitez un `api_key_name` personnalisé.
+Le champ `api_key_name` n'est nécessaire que si le fournisseur est « petit, récent ou de niche » et absent de la table des fournisseurs intégrée, ou si vous souhaitez un `api_key_name` personnalisé.
 
 Les fichiers d'agents référencent ces entrées par leur clé (`"model": "smart"`) — voir [Configuration des agents](#configuration-des-agents) ci-dessous.
 
@@ -216,7 +216,7 @@ Les agents ne peuvent rien modifier en dehors de ces racines ou du dossier des s
 | Couche | Technologies |
 |---|---|
 | Gateway | Bun, Elysia, Drizzle ORM + SQLite, MCP TypeScript SDK, Zod |
-| Agent Core | Python 3.12, FastAPI, litellm, uvicorn, python-dotenv |
+| Fournisseurs LLM | `@ai-sdk` (OpenAI, Anthropic, Google), appelés en processus par le gateway |
 | Frontend | SolidJS, Vite |
 
 ---

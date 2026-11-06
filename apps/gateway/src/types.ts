@@ -6,8 +6,7 @@ import type {
   ChatCompletionMessageToolCall,
   ChatCompletionMessageParam,
   ChatCompletionAssistantMessageParam,
-  ChatCompletionUserMessageParam,
-  ChatCompletionContentPart
+  ChatCompletionUserMessageParam
 } from "@podlet/types";
 
 import type { RunFinishedEvent as AGUIRunFinishedEvent, AGUIEvent } from "@ag-ui/core";
@@ -75,28 +74,6 @@ export interface MCPInstance {
 //===========================================================
 export type ReasoningEffort = "low" | "medium" | "high" | "none";
 
-/** Payload to send to the chat endpoint */
-export interface AgentRequest {
-  // Core Model Info
-  provider: string;
-  model: string;
-  system_prompt: string;
-  history: Array<{ role: string; content: string | ChatCompletionContentPart[];[key: string]: any }>;
-
-  // Environment/Config
-  configpath: string;
-  api_key_name?: string;
-
-  // Model Parameters
-  temperature?: number;
-  reasoning_effort?: ReasoningEffort;
-  base_url?: string;
-
-  // Advanced
-  tools?: any[];
-  response_format?: Record<string, any>;
-}
-
 //=======================================================================================
 // API Input types
 //=======================================================================================
@@ -152,11 +129,6 @@ export interface Skillneeded extends SkillFrontmatter {
   location: string;
 }
 
-/** SSE events emitted by the Python LLM service. */
-export type AgentStreamEvent =
-  | { type: "chunk"; chunk: LiteLLMStreamedChunk }
-  | { type: "error"; error: string; error_type?: string };
-
 /** ~/.podelet/models.json */
 
 /** The wire protocol an entry is spoken to with. Resolved from `provider` (see system/providers.ts). */
@@ -183,9 +155,10 @@ export interface ModelConfig {
   api_key_name?: string;
   temperature?: number;
   /**
-   * @deprecated No longer read: thinking moved to the agent (`Agent.thinking`).
-   * Kept only so `agent_client.ts` (deleted in Phase 3) still compiles; a stored
-   * value makes the model unusable until the key is deleted.
+   * @deprecated Not read by the request path: thinking moved to the agent
+   * (`Agent.thinking`). The field is kept only so a stored legacy value can be
+   * detected and reported: `system/providers.ts` turns it into an "unusable"
+   * health reason and `api-routes/models-routes.ts` rejects it with 422.
    */
   reasoning_effort?: ReasoningEffort;
   base_url?: string;
@@ -265,11 +238,13 @@ export interface LiteLLMDelta extends ChatCompletionChunk.Choice.Delta {
 }
 
 
-export interface ThinkingAnthropic {
-  type: "thinking",
-  thinking: string;
-  signature: string;
-}
+export type ThinkingAnthropic =
+  | {
+      type: "thinking",
+      thinking: string;
+      signature: string;
+    }
+  | { type: "redacted_thinking"; data: string };
 
 //======================================================================
 //HIL Approval related stuff

@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
- * Hand-written `~/.podlet/.env` reader. Python has always loaded this file
- * (python-dotenv, agent_core_py/core.py); the TS side classifies models against
- * `process.env`, so without this loader a key that only lives in `.env` reads as
- * absent and its model is reported unusable.
+ * Hand-written `~/.podlet/.env` reader, loaded by the gateway itself. This used
+ * to be the Python service's job (python-dotenv); the gateway now loads the file
+ * on startup so the TS side, which classifies models against `process.env`, sees
+ * a key that only lives in `.env` instead of reporting its model unusable.
  *
  * Deliberately not a dotenv implementation: no interpolation, no multi-line
  * values, no `#` comment stripping inside a value.

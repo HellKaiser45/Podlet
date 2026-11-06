@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -17,7 +17,6 @@ try {
 }
 
 const gatewayPort = config.server?.port ?? 3000;
-const pythonPort = config.server?.pythonPort ?? 8000;
 const webPort = config.server?.webPort ?? 3002;
 const host = config.server?.host ?? '127.0.0.1';
 
@@ -66,30 +65,7 @@ async function main() {
     console.log('');
   }
 
-  if (!isDocker) {
-    // 1. Python / FastAPI backend
-    const venvDir = path.join(repoRoot, 'agent_core_py', '.venv');
-    if (!existsSync(venvDir)) {
-      console.error('  [!] Python venv not found. Run "bun run init" first.');
-      process.exit(1);
-    }
-
-    const pythonBin = isWin
-      ? path.join(venvDir, 'Scripts', 'python.exe')
-      : path.join(venvDir, 'bin', 'python');
-
-    console.log('  [python] Starting on ' + host + ':' + pythonPort);
-    start('python', pythonBin, [
-      '-m', 'uvicorn', 'main:app',
-      '--host', host,
-      '--port', String(pythonPort),
-    ], { cwd: path.join(repoRoot, 'agent_core_py') });
-
-    // Wait for Python to bind
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-
-  // 2. Gateway (Elysia/Bun)
+  // 1. Gateway (Elysia/Bun)
   console.log('  [gateway] Starting on ' + host + ':' + gatewayPort);
   start('gateway', 'bun', [
     'run', path.join(repoRoot, 'apps', 'gateway', 'src', 'start_prod_server.ts'),
@@ -101,7 +77,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 1000));
 
   if (!isDocker) {
-    // 3. Web UI (SolidJS / Vite dev server)
+    // 2. Web UI (SolidJS / Vite dev server)
     console.log('  [web] Starting on http://localhost:' + webPort);
     start('web', 'bun', [
       'run', '--filter', '@podlet/web', 'dev',
@@ -117,7 +93,6 @@ async function main() {
     console.log('  Frontend available at: http://localhost:' + webPort);
   } else {
     console.log('  Gateway:    http://localhost:' + gatewayPort);
-    console.log('  Python LLM: http://localhost:' + pythonPort);
     console.log('  Web UI:     http://localhost:' + webPort);
   }
   console.log('  ─────────────────────────────────────────');

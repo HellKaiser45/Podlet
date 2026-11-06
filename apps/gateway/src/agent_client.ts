@@ -1,20 +1,40 @@
 import type { ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageToolCall } from 'openai/resources/chat/completions';
-import type { AgentRequest, AgentStreamEvent, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage } from './types';
+import type { ModelMessage, ToolSet } from 'ai';
+import type { AgentThinking, LiteLLMStreamedChunk, ThinkingAnthropic, LiteLLMDelta, LiteLLMMessage, Protocol } from './types';
 import AppContainer from './runtime';
 import { getCoreToolDefinitions } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
 import { hydrateVisionHistory } from './system/vision-hydrate';
-import { thinkingQuirkConflict } from './system/providers';
+import { thinkingQuirkConflict, type ResolvedModel } from './system/providers';
+import { buildLanguageModel } from './llm/provide';
+import { buildProviderOptions } from './llm/thinking';
+import { toModelMessages, toToolSet } from './llm/messages';
+import { runLlmStream } from './llm/stream';
+
+/** A fully-resolved in-process LLM request (no HTTP transport). */
+type ResolvedRequest = {
+  agentId: string;
+  /** The model's `provider` name, used to pick the SDK factory. */
+  providerName: string;
+  protocol: Protocol;
+  modelId: string;
+  resolved: ResolvedModel;
+  system: string;
+  messages: ModelMessage[];
+  tools?: ToolSet;
+  temperature?: number;
+  thinking: AgentThinking;
+  responseFormat?: Record<string, any>;
+};
 
 export class AgentClient {
-  private readonly streamEndpoint = '/chat/stream'
   private readonly appContainer: AppContainer
 
   constructor(appcontainer: AppContainer) {
     this.appContainer = appcontainer;
   }
 
-  private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<AgentRequest> {
+  private async buildRequest(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): Promise<ResolvedRequest> {
     const agent = this.appContainer.agentManager.agents[agentId];
     const model = this.appContainer.modelManager.models[agent.model];
     if (!model) {
@@ -44,121 +64,106 @@ export class AgentClient {
     const hydrated = await hydrateVisionHistory(history, vfileSystem);
 
     // Thinking is an agent setting, positional on the provider's own scale: the
-    // agent's value is what travels as `reasoning_effort`; `none` (and unset)
-    // sends nothing at all. A model whose provider rejects the parameter may not
-    // silently drop a capability the agent asked for, so that combination fails
-    // here — before any request is made.
-    const thinking = agent.thinking ?? "none";
+    // agent's value is what travels as the provider thinking option; `none` (and
+    // unset) sends nothing at all. A model whose provider rejects the parameter
+    // may not silently drop a capability the agent asked for, so that combination
+    // fails here — before any request is made.
+    const thinking = (agent.thinking ?? "none") as AgentThinking;
     const resolved = this.appContainer.modelManager.resolve(agent.model);
     // A model already classified `unusable` is never dispatched: its reason
     // names the offending field and the fix, and sending the request anyway
     // replaces that with an opaque provider error. Runs before the quirk check
     // so a legacy-key model reports the real problem.
-    if (resolved && resolved.health.status === "unusable") {
-      throw new Error(resolved.health.reason ?? `model '${agent.model}': unusable`);
+    if (!resolved || resolved.health.status === "unusable") {
+      throw new Error(resolved?.health.reason ?? `model '${agent.model}': unusable`);
     }
-    if (resolved) {
-      const conflict = thinkingQuirkConflict(agent.model, agentId, agent.thinking, resolved);
-      if (conflict) throw new Error(conflict);
+    if (!resolved.protocol) {
+      throw new Error(`model '${agent.model}': no protocol resolved`);
     }
+    const conflict = thinkingQuirkConflict(agent.model, agentId, agent.thinking, resolved);
+    if (conflict) throw new Error(conflict);
 
     return {
-      provider: model.provider,
-      model: model.model,
-      configpath: this.appContainer.initConfig.podletDir,
-      api_key_name: model.api_key_name,
+      agentId,
+      providerName: model.provider,
+      protocol: resolved.protocol,
+      modelId: model.model,
+      resolved,
       temperature: model.temperature ?? undefined,
-      reasoning_effort: thinking === "none" ? undefined : thinking,
-      base_url: model.base_url ?? undefined,
-      system_prompt: systemPrompt + `\n\n` + updatedSystemPrompt,
-      history: hydrated as AgentRequest['history'],
-      tools: cleanedTools.length > 0 ? cleanedTools : undefined,
-      response_format: agent.response_format,
-    }
+      system: systemPrompt + `\n\n` + updatedSystemPrompt,
+      messages: toModelMessages(hydrated),
+      tools: cleanedTools.length > 0 ? toToolSet(cleanedTools) : undefined,
+      thinking,
+      responseFormat: agent.response_format,
+    };
   }
 
   async *chatStream(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
-    const request = await this.buildRequest(agentId, history, vfileSystem)
-    const baseUrl = this.appContainer.initConfig.llmApiUrl.replace(/\/$/, '');
-    const url = baseUrl + this.streamEndpoint;
+    const request = await this.buildRequest(agentId, history, vfileSystem);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-      },
-      body: JSON.stringify(request),
+    const providerOptions = buildProviderOptions(request.protocol, request.thinking, request.resolved.quirks);
+    this.applyResponseFormat(request, providerOptions);
+
+    const languageModel = buildLanguageModel(request.providerName, request.resolved, request.modelId);
+
+    yield* runLlmStream({
+      model: languageModel,
+      system: request.system,
+      messages: request.messages,
+      tools: request.tools,
+      // `none` thinking produces an empty block -> send nothing at all.
+      providerOptions: Object.keys(providerOptions).length > 0
+        ? providerOptions
+        : undefined,
+      temperature: request.temperature,
     });
+  }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Agent Server Error ${response.status}: ${errorText}`);
+  /**
+   * Honor `agent.response_format` per protocol. NO silent omission: a value that
+   * the chosen provider cannot express throws, naming the setting.
+   */
+  private applyResponseFormat(
+    request: ResolvedRequest,
+    providerOptions: Record<string, Record<string, unknown>>,
+  ): void {
+    const responseFormat = request.responseFormat;
+    if (!responseFormat) return;
+
+    if (request.protocol === 'anthropic') {
+      throw new Error(
+        `agent '${request.agentId}': response_format is unsupported on the anthropic protocol`,
+      );
     }
 
-    if (!response.body) {
-      throw new Error(`Agent Server Error ${response.status}: No body`);
+    if (request.protocol === 'openai') {
+      // @ai-sdk/openai exposes no responseFormat option on the chat model; there
+      // is no supported way to forward the raw OpenAI response_format object.
+      throw new Error(
+        `agent '${request.agentId}': response_format is set, but the @ai-sdk/openai provider exposes no responseFormat option; the setting cannot be honored`,
+      );
     }
 
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let doneReceived = false;
-
-    stream: for await (const chunk of response.body) {
-      buffer += decoder.decode(chunk);
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() ?? "";
-
-      for (const part of parts) {
-        const trimmed = part.trim();
-        if (!trimmed.startsWith('data: ')) continue;
-
-        const data = trimmed.slice(6);
-        if (data === '[DONE]') {
-          doneReceived = true;
-          break stream;
-        }
-
-        let event: unknown;
-        try {
-          event = JSON.parse(data);
-        } catch (error) {
-          throw new Error(
-            `Agent Server Error: invalid SSE JSON: ${error instanceof Error ? error.message : String(error)}`
-          );
-        }
-
-        if (!event || typeof event !== "object") {
-          throw new Error("Agent Server Error: invalid SSE event");
-        }
-
-        const typedEvent = event as Partial<AgentStreamEvent>;
-        if (typedEvent.type === "error") {
-          const errorMessage = "error" in event && typeof event.error === "string"
-            ? event.error
-            : "Unknown LLM service error";
-          const errorType = "error_type" in event && typeof event.error_type === "string"
-            ? ` [${event.error_type}]`
-            : "";
-          throw new Error(errorMessage + errorType);
-        }
-
-        if (typedEvent.type !== "chunk" || !("chunk" in event) || !event.chunk) {
-          throw new Error("Agent Server Error: invalid SSE event type");
-        }
-
-        const chunkEvent = event.chunk as LiteLLMStreamedChunk;
-        if (!Array.isArray(chunkEvent.choices)) {
-          throw new Error("Agent Server Error: invalid LLM chunk");
-        }
-
-        yield chunkEvent;
-      }
+    // google: map to the provider's structured-output responseFormat option.
+    const type = responseFormat.type;
+    if (type === 'json_schema') {
+      const schema = responseFormat.json_schema?.schema;
+      providerOptions.google = {
+        ...(providerOptions.google ?? {}),
+        responseFormat: [{ type: 'text', schema }],
+      };
+      return;
     }
-
-    if (!doneReceived) {
-      throw new Error("Agent Server Error: stream ended before [DONE]");
+    if (type === 'json_object') {
+      providerOptions.google = {
+        ...(providerOptions.google ?? {}),
+        responseFormat: [{ type: 'text', mimeType: 'application/json' }],
+      };
+      return;
     }
+    throw new Error(
+      `agent '${request.agentId}': response_format type '${String(type)}' is unsupported on the google protocol`,
+    );
   }
 }
 

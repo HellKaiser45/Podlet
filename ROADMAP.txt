@@ -43,7 +43,6 @@ SECURITY  (remaining)
 P0  XS   shell: drop inherited process.env, allowlist only                core_tools.ts
 P0  XS   HIL: gate apply_diff + stage_files                               hil-manager.ts
 P0  XS   auth token OR bind 127.0.0.1 by default                          config.ts
-P0  XS   python: CORS allow_origins=["*"] + allow_credentials=True        main.py
 
 CRASH / CORRECTNESS
 -------------------
@@ -60,9 +59,7 @@ P1  XS   toAgentStackFrame: drop status cast                              db_cli
 P1  XS   getByStatus: explicit lambda not unbound method                  db_client.ts
 P1  XS   sqlite PRAGMA WAL + busy_timeout                                 db.ts
 P1  XS   conversation title: lock after rename                            db/history
-P1  XS   core.py: omit api_key kwarg when env unset                       core.py
 P1  XS   DEFAULT_MAX_ITERATIONS 1000 -> 25                                types.ts
-P1  XS   litellm: explicit request_timeout + num_retries                  core.py
 P1  S    restartLeaves -> worklist loop, no recursion                     orchestrator.ts
 P2  XS   buildMessage: don't drop tool calls without id                   agent_client.ts
 P2  XS   sanitizeErrorMessage rewrites file *content*, not just errors    core_tools.ts

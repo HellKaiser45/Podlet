@@ -1,13 +1,16 @@
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { EventType } from '@ag-ui/core';
 import { AgentClient } from '../src/agent_client';
 import { AgentChatLoop } from '../src/agent-loop/chat-loop';
 import { createContext, Agent, AgentState, AgentThinking, ModelConfig } from '../src/types';
 import type { ResolvedModel } from '../src/system/providers';
+import { buildProviderOptions } from '../src/llm/thinking';
 
 // ---------------------------------------------------------------------------
 // Agent.thinking -> request wiring. `reasoning_effort` is an agent setting now;
-// the model-level field is never read.
+// the model-level field is never read. The transport is in-process, so this
+// suite inspects the resolved request plus the providerOptions it produces
+// (exactly what `chatStream` hands to `runLlmStream`), instead of an HTTP body.
 // ---------------------------------------------------------------------------
 
 const okModel: ResolvedModel = {
@@ -52,27 +55,10 @@ function makeContainer(thinking: AgentThinking | undefined, resolved: ResolvedMo
 
 const vfsStub = { getContextTree: async () => '' } as any;
 
-const originalFetch = globalThis.fetch;
-
-/** Replaces fetch with one that records each request body and answers a minimal SSE stream. */
-function captureBodies(): Array<Record<string, unknown>> {
-  const bodies: Array<Record<string, unknown>> = [];
-  globalThis.fetch = (async (_url: string, init: RequestInit) => {
-    bodies.push(JSON.parse(String(init.body)));
-    const encoder = new TextEncoder();
-    const payloads = [
-      JSON.stringify({ type: 'chunk', chunk: { choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] } }),
-      '[DONE]',
-    ];
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const payload of payloads) controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
-        controller.close();
-      },
-    });
-    return new Response(stream, { status: 200 });
-  }) as unknown as typeof fetch;
-  return bodies;
+/** Resolve the request the way `chatStream` does, then produce its providerOptions. */
+async function resolveProviderOptions(container: any, agentId = 'echo') {
+  const request = await container.agentClient.buildRequest(agentId, [], vfsStub);
+  return buildProviderOptions(request.protocol, request.thinking, request.resolved.quirks);
 }
 
 async function drain(client: AgentClient) {
@@ -81,86 +67,71 @@ async function drain(client: AgentClient) {
   }
 }
 
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
 describe('reasoning_effort is built from agent.thinking', () => {
   test("thinking 'none' omits the key entirely", async () => {
-    const bodies = captureBodies();
     const { container } = makeContainer('none', okModel);
 
-    await drain(container.agentClient);
+    const providerOptions = await resolveProviderOptions(container);
 
-    expect(bodies).toHaveLength(1);
-    expect('reasoning_effort' in bodies[0]).toBe(false);
+    expect('reasoning_effort' in providerOptions).toBe(false);
+    expect(providerOptions).toEqual({});
   });
 
   test('an undefined thinking omits the key entirely', async () => {
-    const bodies = captureBodies();
     const { container } = makeContainer(undefined, okModel);
 
-    await drain(container.agentClient);
+    const providerOptions = await resolveProviderOptions(container);
 
-    expect(bodies).toHaveLength(1);
-    expect('reasoning_effort' in bodies[0]).toBe(false);
+    expect('reasoning_effort' in providerOptions).toBe(false);
+    expect(providerOptions).toEqual({});
   });
 
-  test("thinking 'high' sends the literal 'high'", async () => {
-    const bodies = captureBodies();
+  test("thinking 'high' sends the top-of-scale literal 'max'", async () => {
     const { container } = makeContainer('high', okModel);
 
-    await drain(container.agentClient);
+    const providerOptions = await resolveProviderOptions(container);
 
-    expect(bodies).toHaveLength(1);
-    expect(bodies[0].reasoning_effort).toBe('high');
+    expect(providerOptions.openai?.reasoningEffort).toBe('max');
   });
 
   test("thinking 'low' and 'medium' send their own literal", async () => {
     for (const level of ['low', 'medium'] as const) {
-      const bodies = captureBodies();
       const { container } = makeContainer(level, okModel);
 
-      await drain(container.agentClient);
+      const providerOptions = await resolveProviderOptions(container);
 
-      expect(bodies[0].reasoning_effort).toBe(level);
-      globalThis.fetch = originalFetch;
+      expect(providerOptions.openai?.reasoningEffort).toBe(level);
     }
   });
 
   test('a model-level reasoning_effort is not read (the deprecated field is inert)', async () => {
-    const bodies = captureBodies();
     const { container } = makeContainer(undefined, okModel);
     (container.modelManager.models.stub as ModelConfig).reasoning_effort = 'high';
 
-    await drain(container.agentClient);
+    const providerOptions = await resolveProviderOptions(container);
 
-    expect('reasoning_effort' in bodies[0]).toBe(false);
+    expect('reasoning_effort' in providerOptions).toBe(false);
   });
 });
 
 describe('a no_reasoning_effort quirk cannot silently swallow thinking', () => {
   test('thinking none still works on such a model and sends nothing', async () => {
-    const bodies = captureBodies();
     const { container } = makeContainer('none', noReasoningEffortModel);
 
-    await drain(container.agentClient);
+    const providerOptions = await resolveProviderOptions(container);
 
-    expect('reasoning_effort' in bodies[0]).toBe(false);
+    expect(providerOptions).toEqual({});
   });
 
   test('thinking high fails before any request is made', async () => {
-    const bodies = captureBodies();
     const { container } = makeContainer('high', noReasoningEffortModel);
 
-    await expect(drain(container.agentClient)).rejects.toThrow(
+    await expect(resolveProviderOptions(container)).rejects.toThrow(
       "model 'stub': this provider rejects reasoning_effort; agent 'echo' requests thinking 'high'",
     );
-    expect(bodies).toHaveLength(0);
   });
 
   test('the run ends with a RUN_ERROR carrying that reason, and no model call happens', async () => {
-    const bodies = captureBodies();
     const { container, events } = makeContainer('medium', noReasoningEffortModel);
 
     const context = createContext(
@@ -177,7 +148,6 @@ describe('a no_reasoning_effort quirk cannot silently swallow thinking', () => {
     expect(String(errorEvents[0].message)).toContain(
       "model 'stub': this provider rejects reasoning_effort; agent 'echo' requests thinking 'medium'",
     );
-    expect(bodies).toHaveLength(0);
     expect(context.currentState).toBe(AgentState.FAILED);
   });
 });
