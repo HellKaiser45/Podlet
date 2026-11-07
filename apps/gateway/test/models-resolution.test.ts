@@ -77,7 +77,8 @@ describe('shipped .podlet/models.json resolves unchanged', () => {
     expect(resolved.protocol).toBe('openai');
     expect(resolved.base_url).toBe('https://api.z.ai/api/coding/paas/v4');
     expect(resolved.key_var).toBe('ZAI_API_KEY');
-    expect(resolved.headers).toEqual({});
+    // Every provider carries the universal User-Agent.
+    expect(resolved.headers).toEqual({ 'User-Agent': 'Podlet/1.0' });
   });
 
   test('without keys each seed reports the exact reason string', () => {

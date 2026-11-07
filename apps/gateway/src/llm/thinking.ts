@@ -1,40 +1,58 @@
 import type { AgentThinking, Protocol, ProviderQuirks } from '../types';
-import { providerOptionsNamespace } from './provide';
 
 /**
- * Map an agent's thinking tier onto provider-specific options.
- *
- * The tier is positional on the provider's own scale. `low`/`medium` are sent
- * as the provider's own low/medium, and `high` is sent as the provider's
- * top-of-scale value (OpenAI `'max'`, Anthropic a 32000-token budget, Google
- * `'high'`). This matches the owner's stated Anthropic intent (low/medium/max)
- * while keeping identity for the lower two tiers.
- *
- * `none` (and unset) sends nothing at all: no providerOptions block.
- *
- * The OUTER key is the namespace the *instantiated provider* resolves, not the
- * wire protocol. `@ai-sdk/openai-compatible` reads
- * `providerOptions[config.provider.split('.')[0].trim()]`
- * (node_modules/@ai-sdk/openai-compatible/src/chat/
- * openai-compatible-chat-language-model.ts:179) and ignores every other key
- * without a warning, so a provider constructed as `name: 'opencode'` only ever
- * sees `providerOptions.opencode`. Emitting `providerOptions.openai` there
- * silently discards the agent's thinking setting. That is why `providerName` is
- * a required parameter with no default: there is no safe namespace to guess.
- *
- * Anthropic note: `{ type: 'adaptive' }` is the newer Anthropic thinking path,
- * and a fixed `budgetTokens` may warn on the newest Claude models. We keep the
- * enabled+budget form here deliberately and do NOT add a fallback — a silent
- * downgrade would hide that the requested tier was not applied.
+ * The AI SDK's portable call-level reasoning scale
+ * (`LanguageModelV4CallOptions['reasoning']` in @ai-sdk/provider).
  */
-export function buildProviderOptions(
+export type ReasoningLevel =
+  | 'provider-default'
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
+/**
+ * The top of each provider's own scale, which is where the agent's `high` tier
+ * lands. The three providers do NOT share a top value:
+ *
+ *  - OpenAI's effort enum includes 'max'
+ *    (@ai-sdk/openai dist/index.d.ts:54
+ *     `reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "minimal"`).
+ *  - Anthropic's effort enum includes 'max' (@ai-sdk/anthropic dist/index.js:1422).
+ *  - Google's thinkingLevel enum is only minimal|low|medium|high
+ *    (@ai-sdk/google dist/index.js:878-884), and its reasoning mapper
+ *    (@ai-sdk/google dist/index.js:2669-2678) has no 'max' entry, so sending
+ *    'max' there would raise an unsupported warning instead of applying.
+ */
+const TOP_OF_SCALE: Record<Protocol, ReasoningLevel> = {
+  openai: 'max',
+  anthropic: 'max',
+  google: 'high',
+};
+
+/**
+ * Map an agent's thinking tier onto the SDK's portable `reasoning` option.
+ *
+ * Returns `undefined` for `none`/unset: the option is omitted entirely rather
+ * than sent as `reasoning: 'none'`, because 'none' means "disable reasoning"
+ * to a provider that supports it, which is not the same as "say nothing".
+ *
+ * No providerOptions block is written any more: the hand-built
+ * `thinking: { type: 'enabled', budgetTokens }` form is downgraded by the SDK to
+ * adaptive on newer Anthropic models (@ai-sdk/anthropic dist/index.js:4370), and
+ * the resulting `unsupported` warning made stream.ts throw. The portable option
+ * is mapped by the provider itself and cannot be rejected that way.
+ */
+export function mapReasoning(
   protocol: Protocol,
   thinking: AgentThinking | undefined,
   quirks: ProviderQuirks,
-  providerName: string,
-): Record<string, Record<string, unknown>> {
+): ReasoningLevel | undefined {
   const level = thinking ?? 'none';
-  if (level === 'none') return {};
+  if (level === 'none') return undefined;
 
   // A model that rejects reasoning_effort must not silently drop a tier the
   // agent asked for. `thinkingQuirkConflict` in agent_client guards this before
@@ -45,43 +63,6 @@ export function buildProviderOptions(
     );
   }
 
-  // Throws when the namespace cannot be expressed at all, so a level is never
-  // dropped on the floor.
-  const namespace = providerOptionsNamespace(providerName, protocol);
-
-  switch (protocol) {
-    case 'openai': {
-      // Verified against the installed packages: both @ai-sdk/openai
-      // (src/chat/openai-chat-language-model-options.ts:116, enum includes
-      // 'max') and @ai-sdk/openai-compatible (src/chat/
-      // openai-compatible-chat-language-model-options.ts:18) accept
-      // `reasoningEffort`; the compatible model forwards it as the
-      // `reasoning_effort` request field.
-      const reasoningEffort = level === 'high' ? 'max' : level;
-      return { [namespace]: { reasoningEffort } };
-    }
-    case 'anthropic': {
-      // Verified: src/anthropic-language-model-options.ts:149 `sendReasoning`
-      // and :205 `thinking.budgetTokens`, read at
-      // src/anthropic-language-model.ts:793-795. Names are correct as-is.
-      const budgetTokens = level === 'low' ? 1024 : level === 'medium' ? 8192 : 32000;
-      return {
-        [namespace]: {
-          thinking: { type: 'enabled', budgetTokens },
-          sendReasoning: true,
-        },
-      };
-    }
-    case 'google': {
-      // Verified: src/google-language-model-options.ts:70-76 reads
-      // `thinkingConfig.thinkingBudget | includeThoughts | thinkingLevel`,
-      // with thinkingLevel an enum of minimal|low|medium|high. Names are
-      // correct as-is and our tiers are all inside the enum.
-      return {
-        [namespace]: {
-          thinkingConfig: { thinkingLevel: level, includeThoughts: true },
-        },
-      };
-    }
-  }
+  if (level === 'high') return TOP_OF_SCALE[protocol];
+  return level;
 }

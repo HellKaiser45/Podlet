@@ -1,94 +1,55 @@
 import { describe, expect, test } from 'bun:test';
 import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
-import { buildProviderOptions } from '../src/llm/thinking';
+import { mapReasoning } from '../src/llm/thinking';
 import { toModelMessages } from '../src/llm/messages';
 import { runLlmStream } from '../src/llm/stream';
 import type { Protocol, ProviderQuirks } from '../src/types';
 
 const noQuirks: ProviderQuirks = {};
 
-describe('buildProviderOptions', () => {
-  test.each<[Protocol, string, string, Record<string, Record<string, unknown>>]>([
-    ['openai', 'low', 'openai', { openai: { reasoningEffort: 'low' } }],
-    ['openai', 'medium', 'openai', { openai: { reasoningEffort: 'medium' } }],
-    ['openai', 'high', 'openai', { openai: { reasoningEffort: 'max' } }],
-    [
-      'anthropic',
-      'low',
-      'anthropic',
-      { anthropic: { thinking: { type: 'enabled', budgetTokens: 1024 }, sendReasoning: true } },
-    ],
-    [
-      'anthropic',
-      'medium',
-      'anthropic',
-      { anthropic: { thinking: { type: 'enabled', budgetTokens: 8192 }, sendReasoning: true } },
-    ],
-    [
-      'anthropic',
-      'high',
-      'anthropic',
-      { anthropic: { thinking: { type: 'enabled', budgetTokens: 32000 }, sendReasoning: true } },
-    ],
-    ['google', 'low', 'google', { google: { thinkingConfig: { thinkingLevel: 'low', includeThoughts: true } } }],
-    ['google', 'medium', 'google', { google: { thinkingConfig: { thinkingLevel: 'medium', includeThoughts: true } } }],
-    ['google', 'high', 'google', { google: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }],
-  ])('%s / %s / %s maps to the tier table', (protocol, level, providerName, expected) => {
-    expect(buildProviderOptions(protocol, level as any, noQuirks, providerName)).toEqual(expected);
+describe('mapReasoning', () => {
+  const TIERS: Array<[Protocol, 'low' | 'medium' | 'high', string]> = [
+    ['openai', 'low', 'low'],
+    ['openai', 'medium', 'medium'],
+    ['openai', 'high', 'max'],
+    ['anthropic', 'low', 'low'],
+    ['anthropic', 'medium', 'medium'],
+    ['anthropic', 'high', 'max'],
+    ['google', 'low', 'low'],
+    ['google', 'medium', 'medium'],
+    ['google', 'high', 'high'],
+  ];
+
+  test.each(TIERS)('%s / %s maps to the tier table', (protocol, level, expected) => {
+    expect(mapReasoning(protocol, level, noQuirks)).toBe(expected);
   });
 
   test.each<Protocol>(['openai', 'anthropic', 'google'])(
     'none produces no providerOptions block on %s',
     (protocol) => {
-      expect(buildProviderOptions(protocol, 'none', noQuirks, 'opencode')).toEqual({});
-      expect(buildProviderOptions(protocol, undefined, noQuirks, 'opencode')).toEqual({});
+      expect(mapReasoning(protocol, 'none', noQuirks)).toBeUndefined();
+      expect(mapReasoning(protocol, undefined, noQuirks)).toBeUndefined();
     },
   );
 
   test('no_reasoning_effort throws instead of silently dropping thinking', () => {
-    expect(() => buildProviderOptions('openai', 'high', { no_reasoning_effort: true }, 'openai')).toThrow();
+    expect(() => mapReasoning('openai', 'high', { no_reasoning_effort: true })).toThrow();
     // `none` is unaffected by the quirk.
-    expect(buildProviderOptions('openai', 'none', { no_reasoning_effort: true }, 'openai')).toEqual({});
+    expect(mapReasoning('openai', 'none', { no_reasoning_effort: true })).toBeUndefined();
   });
 
-  // The outer providerOptions key is the namespace the INSTANTIATED provider
-  // resolves, not the wire protocol. @ai-sdk/openai-compatible derives it from
-  // its own name (src/chat/openai-compatible-chat-language-model.ts:179), so an
-  // `opencode` instance never reads `providerOptions.openai` — emitting that key
-  // was the silent drop this case pins down.
-  test('a non-canonical openai-compatible provider name is the emitted key', () => {
-    expect(buildProviderOptions('openai', 'high', noQuirks, 'opencode')).toEqual({
-      opencode: { reasoningEffort: 'max' },
-    });
-    expect(buildProviderOptions('openai', 'medium', noQuirks, 'zai')).toEqual({
-      zai: { reasoningEffort: 'medium' },
-    });
-    expect(buildProviderOptions('openai', 'low', noQuirks, 'lm_studio')).toEqual({
-      lm_studio: { reasoningEffort: 'low' },
-    });
+  // The mapping is per protocol, not per provider instance: an opencode or zai
+  // endpoint speaks the openai wire protocol and shares OpenAI's scale.
+  test('the mapping follows the protocol, not the provider instance name', () => {
+    expect(mapReasoning('openai', 'high', noQuirks)).toBe('max');
+    expect(mapReasoning('google', 'high', noQuirks)).toBe('high');
+    expect(mapReasoning('anthropic', 'high', noQuirks)).toBe('max');
   });
 
-  test('canonical openai still emits the openai key with max for high', () => {
-    expect(buildProviderOptions('openai', 'high', noQuirks, 'openai')).toEqual({
-      openai: { reasoningEffort: 'max' },
-    });
-  });
-
-  // anthropic/google hardcode their key in the SDK, so the model's provider
-  // string does not change it (`gemini` still resolves `providerOptions.google`).
-  test('anthropic and google keys are the SDK provider name, not the model provider string', () => {
-    expect(buildProviderOptions('google', 'high', noQuirks, 'gemini')).toEqual({
-      google: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } },
-    });
-    expect(buildProviderOptions('anthropic', 'low', noQuirks, 'anthropic')).toEqual({
-      anthropic: { thinking: { type: 'enabled', budgetTokens: 1024 }, sendReasoning: true },
-    });
-  });
-
-  test('a provider name the compatible SDK would truncate fails loudly', () => {
-    expect(() => buildProviderOptions('openai', 'high', noQuirks, 'my.endpoint')).toThrow(
-      /rename the provider without a '\.'/,
-    );
+  test('a provider name the compatible SDK would truncate no longer applies', () => {
+    // The portable option removes the namespace guessing entirely, so no name
+    // can be unresolvable any more.
+    expect(mapReasoning('openai', 'high', noQuirks)).toBe('max');
   });
 });
 

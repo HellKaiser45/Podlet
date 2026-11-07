@@ -27,7 +27,6 @@ function makeContainer(entry: unknown, thinking?: AgentThinking) {
   const container: any = {
     initConfig: {
       podletDir: '/tmp/podlet-stub',
-      llmApiUrl: 'http://stub.invalid',
       vision: { enabled: false },
     },
     agentManager: { agents: { echo: agent }, getAgentprompt: async () => 'sys' },

@@ -7,8 +7,9 @@ import { VirtualFileSystem } from './system/sandbox';
 import { hydrateVisionHistory } from './system/vision-hydrate';
 import { thinkingQuirkConflict, type ResolvedModel } from './system/providers';
 import { buildLanguageModel } from './llm/provide';
-import { buildProviderOptions } from './llm/thinking';
-import { toModelMessages, toToolSet } from './llm/messages';
+import { mapReasoning } from './llm/thinking';
+import { toModelMessages, toToolSet, withCacheControl } from './llm/messages';
+import { computeConversationId, conversationHeaders } from './llm/conversation';
 import { runLlmStream } from './llm/stream';
 
 /** A fully-resolved in-process LLM request (no HTTP transport). */
@@ -19,10 +20,12 @@ type ResolvedRequest = {
   protocol: Protocol;
   modelId: string;
   resolved: ResolvedModel;
-  system: string;
+  /** The stable half (skills + agent prompt): cached on anthropic. */
+  stableSystem: string;
+  /** The per-turn half (context tree): never cached. */
+  volatileSystem: string;
   messages: ModelMessage[];
   tools?: ToolSet;
-  temperature?: number;
   thinking: AgentThinking;
   responseFormat?: Record<string, any>;
 };
@@ -50,13 +53,6 @@ export class AgentClient {
     const gatedTools = visionEnabled
       ? tools
       : tools.filter((tool: any) => tool?.function?.name !== 'see_image');
-
-    const cleanedTools = gatedTools.map((tool: any) => {
-      if (tool?.type === "function" && tool.function) {
-        return { ...tool, function: { ...tool.function, strict: false } };
-      }
-      return tool;
-    });
 
     const systemPrompt = await this.appContainer.skillManager.injectSkills(agent.skills || [], await this.appContainer.agentManager.getAgentprompt(agentId), vfileSystem);
     const updatedSystemPrompt = await vfileSystem.getContextTree()
@@ -89,10 +85,10 @@ export class AgentClient {
       protocol: resolved.protocol,
       modelId: model.model,
       resolved,
-      temperature: model.temperature ?? undefined,
-      system: systemPrompt + `\n\n` + updatedSystemPrompt,
+      stableSystem: systemPrompt,
+      volatileSystem: updatedSystemPrompt,
       messages: toModelMessages(hydrated),
-      tools: cleanedTools.length > 0 ? toToolSet(cleanedTools) : undefined,
+      tools: gatedTools.length > 0 ? toToolSet(gatedTools) : undefined,
       thinking,
       responseFormat: agent.response_format,
     };
@@ -103,26 +99,46 @@ export class AgentClient {
 
     // `providerName` is the string handed to the provider factory, which is the
     // namespace the SDK resolves providerOptions under — not the protocol.
-    const providerOptions = buildProviderOptions(
-      request.protocol,
-      request.thinking,
-      request.resolved.quirks,
-      request.providerName,
-    );
+    const providerOptions: Record<string, Record<string, unknown>> = {};
     this.applyResponseFormat(request, providerOptions);
 
-    const languageModel = buildLanguageModel(request.providerName, request.resolved, request.modelId);
+    const conversationId = computeConversationId(history);
+    const modelHeaders = {
+      ...request.resolved.headers,
+      ...conversationHeaders(conversationId, request.resolved.quirks),
+    };
+    const languageModel = buildLanguageModel(
+      request.providerName,
+      { ...request.resolved, headers: modelHeaders },
+      request.modelId,
+    );
+
+    // Only anthropic has per-part cacheControl. For that protocol the system
+    // prompt is sent as entries in `messages` so each part can carry a
+    // breakpoint; every other protocol keeps streamText's `system` option.
+    const useCacheControl = request.protocol === 'anthropic' && !request.resolved.quirks.no_cache_control;
+    const messages = useCacheControl
+      ? withCacheControl(
+          request.messages,
+          { stable: request.stableSystem, volatile: request.volatileSystem },
+          request.resolved.quirks,
+        )
+      : request.messages;
 
     yield* runLlmStream({
       model: languageModel,
-      system: request.system,
-      messages: request.messages,
+      // Omitted on the cache-control path: the system prompt is in `messages`
+      // there. Sending both would duplicate the whole system prompt.
+      system: useCacheControl
+        ? undefined
+        : request.stableSystem + `\n\n` + request.volatileSystem,
+      messages,
       tools: request.tools,
-      // `none` thinking produces an empty block -> send nothing at all.
       providerOptions: Object.keys(providerOptions).length > 0
         ? providerOptions
         : undefined,
-      temperature: request.temperature,
+      // `undefined` omits the option entirely: `none` sends nothing at all.
+      reasoning: mapReasoning(request.protocol, request.thinking, request.resolved.quirks),
     });
   }
 

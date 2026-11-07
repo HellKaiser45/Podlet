@@ -26,7 +26,15 @@ export type ProviderRow = {
   key_env?: string;
   headers?: Record<string, string>;
   api_key_optional?: boolean;
+  quirks?: ProviderQuirks;
 };
+
+/**
+ * Sent on every request to every provider. The deleted Python service only sent
+ * it for opencode; the owner now wants it universally, so it is merged into the
+ * resolved headers rather than repeated on each of the twelve rows.
+ */
+export const DEFAULT_HEADERS: Record<string, string> = { 'User-Agent': 'Podlet/1.0' };
 
 export const PROVIDER_TABLE: Record<string, ProviderRow> = {
   openai: {
@@ -63,6 +71,9 @@ export const PROVIDER_TABLE: Record<string, ProviderRow> = {
   opencode: {
     protocol: "openai",
     key_env: "OPENCODE_API_KEY",
+    // The per-conversation `x-opencode-session` header is dynamic, so the row
+    // only declares that the provider wants it (see llm/conversation.ts).
+    quirks: { opencode_session: true },
   },
   moonshot: {
     protocol: "openai",
@@ -142,6 +153,23 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Mirrors the deleted Python service's `_is_opencode()`: the provider is named
+ * `opencode`, OR its base_url points at opencode.ai. The base_url test matters
+ * because opencode can also be configured as a generic openai-compatible
+ * provider under a different name.
+ */
+function isOpencode(
+  row: ProviderRow,
+  entryBaseUrl: unknown,
+  resolvedBaseUrl: string | undefined,
+): boolean {
+  for (const candidate of [entryBaseUrl, resolvedBaseUrl, row.base_url]) {
+    if (typeof candidate === "string" && candidate.includes("opencode.ai")) return true;
+  }
+  return false;
 }
 
 /**
@@ -242,18 +270,18 @@ export function resolveModel(
   if (config.headers !== undefined && (config.headers === null || typeof config.headers !== "object" || Array.isArray(config.headers))) {
     return unusable(`model '${name}': headers must be an object of string values`, storedQuirks);
   }
-  const headers: Record<string, string> = { ...(row.headers ?? {}) };
+  // Row defaults first, then the universal User-Agent, then the entry's own
+  // headers — so an entry can override the default if it ever needs to.
+  const headers: Record<string, string> = { ...(row.headers ?? {}), ...DEFAULT_HEADERS };
   for (const [key, value] of Object.entries(config.headers ?? {})) {
     if (typeof value !== "string") {
       return unusable(`model '${name}': headers['${key}'] must be a string`, storedQuirks);
     }
     headers[key] = value;
   }
-
   if (config.quirks !== undefined && (config.quirks === null || typeof config.quirks !== "object" || Array.isArray(config.quirks))) {
     return unusable(`model '${name}': quirks must be an object`, storedQuirks);
   }
-
   return {
     health: { status: "ok" },
     protocol,
@@ -262,7 +290,9 @@ export function resolveModel(
     key_var: keyVar,
     key_source: keySource,
     headers,
-    quirks: { ...(config.quirks ?? {}) },
+    quirks: isOpencode(row, config.base_url, baseUrl)
+      ? { ...(row.quirks ?? {}), ...(config.quirks ?? {}), opencode_session: true }
+      : { ...(row.quirks ?? {}), ...(config.quirks ?? {}) },
   };
 }
 

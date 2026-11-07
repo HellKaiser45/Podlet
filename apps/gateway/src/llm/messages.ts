@@ -1,17 +1,167 @@
 import type {
   AssistantContent,
+  AssistantModelMessage,
   ImagePart,
   JSONSchema7,
   ModelMessage,
+  SystemModelMessage,
   TextPart,
   ToolCallPart,
   ToolResultPart,
   ToolSet,
   UserContent,
+  UserModelMessage,
 } from 'ai';
 import { jsonSchema, tool } from 'ai';
 import type { ChatCompletionTool } from '@podlet/types';
-import type { LiteLLMMessage } from '../types';
+import type { LiteLLMMessage, ProviderQuirks } from '../types';
+
+/**
+ * Anthropic allows at most four prompt-cache breakpoints per request
+ * (@ai-sdk/anthropic dist/index.js:1559 `const MAX_CACHE_BREAKPOINTS = 4`, and
+ * :1585 pushes an `unsupported` warning past it). We place two: one on the
+ * stable system prompt and one on the last message.
+ */
+export const MAX_CACHE_BREAKPOINTS = 4;
+
+/** The providerOptions value Anthropic reads as a breakpoint on a message part. */
+const CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
+
+/**
+ * The two system prompts, kept apart so only the stable half is cached.
+ *
+ * `stable` is skills + agent prompt: identical on every turn of a conversation.
+ * `volatile` is the virtual file-system context tree, which changes each turn —
+ * putting it inside the cached span would invalidate the cache every time.
+ */
+export type SystemPromptParts = { stable: string; volatile: string };
+
+/**
+ * Build the entries sent as `messages` for an anthropic request, with cache
+ * breakpoints. Returns the history untouched for every other protocol.
+ *
+ * Why two system *messages* rather than one message with an array of text parts:
+ * `SystemModelMessage.content` is typed `string` in the installed SDK
+ * (@ai-sdk/provider-utils dist/index.d.ts:1784-1794: `role: 'system'; content:
+ * string; providerOptions?: ProviderOptions`), so a part array cannot be
+ * expressed. Two consecutive system messages are equivalent: the Anthropic
+ * converter groups them into one block and emits one text part per message,
+ * each carrying its own `cache_control`
+ * (@ai-sdk/anthropic dist/index.js:2732-2755: for each block message it pushes
+ * `{ type: 'text', text, cache_control: validator.getCacheControl(providerOptions,
+ * { type: 'system message', canCache: true }) }`).
+ *
+ * A system role inside `messages` requires `allowSystemInMessages` on the
+ * streamText call (@ai-sdk/ai dist/index.js:2246 throws `InvalidPromptError`
+ * otherwise).
+ */
+export function withCacheControl(
+  history: ModelMessage[],
+  systemParts: SystemPromptParts,
+  quirks: ProviderQuirks,
+): ModelMessage[] {
+  if (quirks.no_cache_control) return history;
+
+  const systemMessages: SystemModelMessage[] = [
+    // Breakpoint 1: the stable span. Everything before this stays cached.
+    { role: 'system', content: systemParts.stable, providerOptions: CACHE_CONTROL },
+    // No breakpoint: this text is regenerated every turn.
+    { role: 'system', content: systemParts.volatile },
+  ];
+
+  const messages = [...systemMessages, ...history];
+
+  // Breakpoint 2: the last message, the checkpoint the next turn resumes from.
+  const withLast = addBreakpointToLastMessage(messages);
+
+  assertBreakpointBudget(withLast);
+  return withLast;
+}
+
+/**
+ * Attach the cache breakpoint to the final message. Message-level providerOptions
+ * is read for the last part of a user message
+ * (@ai-sdk/anthropic dist/index.js:2803-2813), so a string-content user turn is
+ * rewritten to a single text part carrying the option; an array-content turn
+ * gains it on its last part.
+ */
+function addBreakpointToLastMessage(messages: ModelMessage[]): ModelMessage[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1]!;
+
+  if (last.role === 'user') {
+    const content = (last as UserModelMessage).content;
+    const parts: UserContent =
+      typeof content === 'string'
+        ? content.length > 0
+          ? [{ type: 'text', text: content, providerOptions: CACHE_CONTROL }]
+          : []
+        : content.map((part, index) =>
+            index === content.length - 1 ? { ...part, providerOptions: CACHE_CONTROL } : part,
+          );
+    return [...messages.slice(0, -1), { role: 'user', content: parts }];  }
+  if (last.role === 'assistant') {
+    const content = (last as AssistantModelMessage).content;
+    if (typeof content === 'string') {
+      if (content.length === 0) return messages;
+      return [
+        ...messages.slice(0, -1),
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: content, providerOptions: CACHE_CONTROL }],
+        },
+      ];
+    }
+    if (content.length === 0) return messages;
+    return [
+      ...messages.slice(0, -1),
+      {
+        role: 'assistant',
+        content: content.map((part, index) =>
+          index === content.length - 1 ? { ...part, providerOptions: CACHE_CONTROL } : part,
+        ),
+      },
+    ];
+  }
+
+  // A tool message carries results only; the converter reads no cache option
+  // there, so the previous message remains the effective checkpoint.
+  return messages;
+}
+
+/** Count every breakpoint in the payload and refuse to exceed Anthropic's limit. */
+export function countCacheBreakpoints(messages: ModelMessage[]): number {
+  let count = 0;
+  for (const message of messages) {
+    const providerOptions = (message as { providerOptions?: Record<string, unknown> }).providerOptions;
+    if (hasCacheControl(providerOptions)) count++;
+    const content = (message as { content?: unknown }).content;
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (hasCacheControl((part as { providerOptions?: Record<string, unknown> }).providerOptions)) {
+          count++;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+function hasCacheControl(providerOptions: Record<string, unknown> | undefined): boolean {
+  const anthropic = providerOptions?.anthropic as
+    | { cacheControl?: unknown; cache_control?: unknown }
+    | undefined;
+  return anthropic?.cacheControl != null || anthropic?.cache_control != null;
+}
+
+function assertBreakpointBudget(messages: ModelMessage[]): void {
+  const count = countCacheBreakpoints(messages);
+  if (count > MAX_CACHE_BREAKPOINTS) {
+    throw new Error(
+      `prompt caching: ${count} cache breakpoints placed, but Anthropic allows at most ${MAX_CACHE_BREAKPOINTS}`,
+    );
+  }
+}
 
 /**
  * Convert the stored, OpenAI-shaped history into AI SDK `ModelMessage`s.
@@ -126,7 +276,18 @@ export function toModelMessages(history: LiteLLMMessage[]): ModelMessage[] {
   return out;
 }
 
-/** Build a `ToolSet` of tools WITHOUT `execute`: our loop runs tools itself. */
+/**
+ * Build a `ToolSet` of tools WITHOUT `execute`: our loop runs tools itself.
+ *
+ * Every definition is marked `strict`, which `ai`'s `tool()` forwards onto the
+ * language-model tool object (@ai-sdk/ai dist/index.js:2146 `...strict != null ?
+ * { strict } : {}`). What each provider then does with it is the provider's
+ * business, not ours: openai-compatible sends it on the function
+ * (@ai-sdk/openai-compatible dist/index.js:324-328), anthropic sends it when the
+ * model supports structured output and otherwise warns with feature 'strict'
+ * (@ai-sdk/anthropic dist/index.js:1950-1961), and google switches function
+ * calling to VALIDATED (@ai-sdk/google dist/index.js:1366,1375).
+ */
 export function toToolSet(tools: ChatCompletionTool[] | undefined): ToolSet {
   const set: Record<string, ReturnType<typeof tool>> = {};
   for (const entry of tools ?? []) {
@@ -139,6 +300,7 @@ export function toToolSet(tools: ChatCompletionTool[] | undefined): ToolSet {
     set[fn.name] = tool({
       description: fn.description,
       inputSchema: jsonSchema(schema),
+      strict: true,
     });
   }
   return set as ToolSet;

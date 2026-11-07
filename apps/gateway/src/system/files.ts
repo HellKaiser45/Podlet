@@ -24,14 +24,14 @@ export default async function createfilesystem(path: string) {
   }
   if (!await configfiles.exists()) {
     configfiles.write(JSON.stringify({
-      server: { port: 3000, host: "127.0.0.1", pythonPort: 8000, webPort: 3002 },
+      server: { port: 3000, host: "127.0.0.1", webPort: 3002 },
       database: { path: "podlet.db" },
       features: { safemode: false }
     }, null, 2))
   }
   if (!await modelsfiles.exists()) {
     modelsfiles.write(JSON.stringify({
-      fast: { provider: "openai", model: "gpt-4o-mini", temperature: 0.7 },
+      fast: { provider: "openai", model: "gpt-4o-mini" },
       smart: { provider: "anthropic", model: "claude-sonnet-4" }
 
     }, null, 2))

@@ -16,6 +16,7 @@ const QuirksSchema = t.Optional(t.Object({
   no_stream_options: t.Optional(t.Boolean()),
   anthropic_static_budget: t.Optional(t.Boolean()),
   disable_thinking_on_none: t.Optional(t.Boolean()),
+  opencode_session: t.Optional(t.Boolean()),
 }));
 
 const HeadersSchema = t.Optional(t.Record(t.String(), t.String()));
@@ -24,7 +25,6 @@ const ModelFieldsSchema = {
   provider: t.String(),
   model: t.String(),
   api_key_name: t.Optional(t.String()),
-  temperature: t.Optional(t.Number()),
   base_url: t.Optional(t.String()),
   headers: HeadersSchema,
   quirks: QuirksSchema,
@@ -35,7 +35,6 @@ const PartialModelFieldsSchema = {
   provider: t.Optional(t.String()),
   model: t.Optional(t.String()),
   api_key_name: t.Optional(t.String()),
-  temperature: t.Optional(t.Number()),
   base_url: t.Optional(t.String()),
   headers: HeadersSchema,
   quirks: QuirksSchema,
@@ -46,7 +45,6 @@ const MODEL_FIELDS = [
   'provider',
   'model',
   'api_key_name',
-  'temperature',
   'base_url',
   'headers',
   'quirks',

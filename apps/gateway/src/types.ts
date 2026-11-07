@@ -145,6 +145,12 @@ export interface ProviderQuirks {
   anthropic_static_budget?: boolean;
   /** Emit `thinkingBudget: 0` for google when `agent.thinking` is `none`. */
   disable_thinking_on_none?: boolean;
+  /**
+   * Send the per-conversation `x-opencode-session` header, as the old Python
+   * service did for opencode. Dynamic (it depends on the history), so it cannot
+   * live in the static provider table; set on the `opencode` row only.
+   */
+  opencode_session?: boolean;
 }
 
 export interface ModelConfig {
@@ -153,7 +159,6 @@ export interface ModelConfig {
   /** Model id passed to the provider SDK. */
   model: string;
   api_key_name?: string;
-  temperature?: number;
   /**
    * @deprecated Not read by the request path: thinking moved to the agent
    * (`Agent.thinking`). The field is kept only so a stored legacy value can be

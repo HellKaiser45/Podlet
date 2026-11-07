@@ -1,5 +1,4 @@
 import type {
-  CallWarning,
   FinishReason,
   LanguageModel,
   ModelMessage,
@@ -7,32 +6,42 @@ import type {
 } from 'ai';
 import { streamText } from 'ai';
 import type { LiteLLMDelta, LiteLLMStreamedChunk, ThinkingAnthropic } from '../types';
+import type { ReasoningLevel } from './thinking';
+import { normalizeUsage } from './usage';
+import { createWarningLogger, describeWarning, namesRequestedCapability } from './warnings';
+
+/**
+ * We own warning output for this process.
+ *
+ * The `ai` package prints every warning itself by default, which is what
+ * produced the duplicate `(node:…) Warning: AI SDK Warning (provider / model): …`
+ * line next to our own `[llm] … warning: …`. Its printer is read from this
+ * global (ai/dist/index.js:642: `const logger = globalThis.AI_SDK_LOG_WARNINGS;`
+ * → `if (typeof logger === "function") { logger(options); return; }`).
+ *
+ * A no-op FUNCTION rather than `false`: `false` still lets the SDK print its
+ * `FIRST_WARNING_INFO_MESSAGE` info line, which is noise here.
+ */
+(globalThis as any).AI_SDK_LOG_WARNINGS = () => {};
+
+const warningLogger = createWarningLogger();
 
 export type RunLlmStreamOptions = {
   model: LanguageModel;
-  system: string;
+  /** Sent via streamText's `system` option. Omitted when the caller has already
+   *  put the system prompt into `messages` (needed for Anthropic cache breaks). */
+  system?: string;
   messages: ModelMessage[];
   tools?: ToolSet;
+  /** Kept for future provider-specific needs. Thinking no longer writes here. */
   providerOptions?: Record<string, Record<string, unknown>>;
-  temperature?: number;
-  maxOutputTokens?: number;
+  /**
+   * Portable, provider-agnostic reasoning tier. Mapped per protocol by the
+   * caller (`mapReasoning`); `undefined` omits the option entirely.
+   */
+  reasoning?: ReasoningLevel;
   abortSignal?: AbortSignal;
 };
-
-/**
- * A warning feature that names an explicitly requested capability. If the
- * provider reports one of these as `unsupported`, the request must fail rather
- * than continue with the capability silently dropped.
- */
-const REQUESTED_CAPABILITIES = [
-  'reason',
-  'thinking',
-  'cache',
-  'responseformat',
-  'response_format',
-  'structured',
-  'outputformat',
-];
 
 /** Accumulator for one provider reasoning block, keyed by the provider part id. */
 type ReasoningBuffer = {
@@ -54,8 +63,17 @@ export async function* runLlmStream(
     messages: options.messages,
     tools: options.tools,
     providerOptions: options.providerOptions as any,
-    temperature: options.temperature,
-    maxOutputTokens: options.maxOutputTokens,
+    // The portable reasoning option: streamText's settings type is
+    // LanguageModelCallOptions, which declares
+    //   reasoning?: LanguageModelV4CallOptions['reasoning']
+    // (ai dist/index.d.ts:765), and that union is
+    //   'provider-default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' |
+    //   'xhigh' | 'max'
+    // (@ai-sdk/provider dist/index.d.ts:1576).
+    reasoning: options.reasoning,
+    // A 'system' role entry in `messages` is rejected unless this is set
+    // (ai dist/index.js:2246). Only the Anthropic path puts it there.
+    allowSystemInMessages: true,
     // litellm performed no retries; adding them would change semantics.
     maxRetries: 0,
     abortSignal: options.abortSignal,
@@ -141,6 +159,10 @@ export async function* runLlmStream(
         for (const id of [...reasoningById.keys()]) {
           yield* drainReasoning(id, reasoningById);
         }
+        // `totalUsage` is the field on the finish part: TextStreamFinishPart is
+        // { type: 'finish'; finishReason; rawFinishReason; totalUsage }
+        // (ai dist/index.d.ts:3163-3168).
+        logUsage(part.totalUsage);
         yield finishChunk(part.finishReason);
         break;
       }
@@ -152,9 +174,12 @@ export async function* runLlmStream(
 
   const warnings = await warningsPromise;
   if (warnings) {
+    const scope = warningScope(options.model);
     for (const raw of warnings) {
       const warning = describeWarning(raw);
-      logWarning(warning);
+      warningLogger.log(warning, scope);
+      // Deliberately outside the dedupe: a dropped requested capability must
+      // fail every call, not just the first one that reported it.
       if (warning.type === 'unsupported' && namesRequestedCapability(warning)) {
         throw new Error(
           `provider did not apply requested capability '${warning.feature}'` +
@@ -163,6 +188,20 @@ export async function* runLlmStream(
       }
     }
   }
+}
+
+/** One structured usage line per call. Nothing is persisted. */
+function logUsage(usage: Parameters<typeof normalizeUsage>[0]): void {
+  const normalized = normalizeUsage(usage);
+  console.log(
+    `[llm] usage input=${fmt(normalized.inputTokens)} output=${fmt(normalized.outputTokens)}` +
+      ` total=${fmt(normalized.totalTokens)} cacheRead=${fmt(normalized.cacheReadTokens)}` +
+      ` cacheWrite=${fmt(normalized.cacheWriteTokens)} reasoning=${fmt(normalized.reasoningTokens)}`,
+  );
+}
+
+function fmt(value: number | undefined): string {
+  return value === undefined ? 'n/a' : String(value);
 }
 
 /**
@@ -198,26 +237,16 @@ function drainReasoning(
   return [deltaChunk({ reasoning_content: entry.text })];
 }
 
-type DescribedWarning = { type: string; feature: string; details?: string };
-
-function describeWarning(warning: CallWarning): DescribedWarning {
-  if ('feature' in warning) {
-    return { type: warning.type, feature: warning.feature, details: warning.details };
-  }
-  if ('setting' in warning) {
-    return { type: warning.type, feature: warning.setting, details: warning.message };
-  }
-  return { type: warning.type, feature: String(warning) };
-}
-
-function logWarning(warning: DescribedWarning): void {
-  const details = warning.details ? ` — ${warning.details}` : '';
-  console.warn(`[llm] ${warning.type} warning: ${warning.feature}${details}`);
-}
-
-function namesRequestedCapability(warning: DescribedWarning): boolean {
-  const feature = warning.feature.toLowerCase();
-  return REQUESTED_CAPABILITIES.some((capability) => feature.includes(capability));
+/**
+ * `<provider> <modelId>` for warnings, so two models emitting the same
+ * compatibility warning each get one line. `LanguageModel` is a union, so the
+ * two fields are probed at runtime; absent (or non-string) means no scope.
+ */
+function warningScope(model: LanguageModel): string | undefined {
+  const provider = (model as any).provider;
+  const modelId = (model as any).modelId;
+  if (typeof provider !== 'string' || typeof modelId !== 'string') return undefined;
+  return `${provider} ${modelId}`;
 }
 
 const INDEX = 0;
