@@ -147,6 +147,10 @@ export class AgentClient {
         : undefined,
       // `undefined` omits the option entirely: `none` sends nothing at all.
       reasoning: mapReasoning(request.protocol, request.thinking, request.resolved.quirks),
+      // The usage record is assembled HERE in a later phase: `chatStream` owns
+      // the identity the adapter cannot know (runId, frameId, agentId, model
+      // key, protocol). Until then the callback is a no-op.
+      onUsage: () => {},
     });
   }
 

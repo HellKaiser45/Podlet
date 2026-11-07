@@ -73,7 +73,7 @@ export const PROVIDER_TABLE: Record<string, ProviderRow> = {
     key_env: "OPENCODE_API_KEY",
     // The per-conversation `x-opencode-session` header is dynamic, so the row
     // only declares that the provider wants it (see llm/conversation.ts).
-    quirks: { opencode_session: true },
+    quirks: { opencode_session: true, no_stream_options: true },
   },
   moonshot: {
     protocol: "openai",
@@ -95,12 +95,16 @@ export const PROVIDER_TABLE: Record<string, ProviderRow> = {
     base_url: "http://localhost:11434/v1",
     key_env: "OLLAMA_API_KEY",
     api_key_optional: true,
+    // Rejects unknown request fields: asking for usage would 400 every call.
+    quirks: { no_stream_options: true },
   },
   lm_studio: {
     protocol: "openai",
     base_url: "http://localhost:1234/v1",
     key_env: "LM_STUDIO_API_KEY",
     api_key_optional: true,
+    // Rejects unknown request fields: asking for usage would 400 every call.
+    quirks: { no_stream_options: true },
   },
 };
 

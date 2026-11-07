@@ -59,8 +59,9 @@ describe('conversation id derivation', () => {
   });
 
   test('nested keys are sorted too', () => {
-    const left = { role: 'user', content: [{ a: 1, b: { c: 2, d: 3 } }] } as LiteLLMMessage;
-    const right = { content: [{ b: { d: 3, c: 2 }, a: 1 }], role: 'user' } as LiteLLMMessage;
+    // Intentionally not valid messages: only the key order is under test here.
+    const left = { role: 'user', content: [{ a: 1, b: { c: 2, d: 3 } }] } as unknown as LiteLLMMessage;
+    const right = { content: [{ b: { d: 3, c: 2 }, a: 1 }], role: 'user' } as unknown as LiteLLMMessage;
     expect(computeConversationId([left])).toBe(computeConversationId([right]));
   });
 

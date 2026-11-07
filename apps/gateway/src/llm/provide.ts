@@ -53,6 +53,11 @@ export function buildLanguageModel(
         apiKey: resolved.api_key,
         baseURL: resolved.base_url,
         headers: resolved.headers,
+        // Without this the compatible provider never requests usage at all:
+        // `stream_options` is sent only when this flag is truthy
+        // (@ai-sdk/openai-compatible dist/index.js:547). Endpoints that reject
+        // unknown request fields declare `no_stream_options` to opt out.
+        includeUsage: resolved.quirks.no_stream_options !== true,
       }).chatModel(modelId);
     }
     case 'anthropic':

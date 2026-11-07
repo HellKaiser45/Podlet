@@ -145,6 +145,6 @@ describe('a no_reasoning_effort quirk cannot silently swallow thinking', () => {
     expect(String(errorEvents[0].message)).toContain(
       "model 'stub': this provider rejects reasoning_effort; agent 'echo' requests thinking 'medium'",
     );
-    expect(context.currentState).toBe(AgentState.FAILED);
+    expect<AgentState>(context.currentState).toBe(AgentState.FAILED);
   });
 });

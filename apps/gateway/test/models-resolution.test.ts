@@ -10,6 +10,7 @@ import {
   resolveModel,
 } from '../src/system/providers';
 import ModelsManager from '../src/system/models';
+import type { Protocol } from '../src/types';
 
 // The shipped config, read from the repo — it must not need an edit (K-11).
 const shippedPath = join(import.meta.dir, '..', '..', '..', '.podlet', 'models.json');
@@ -30,10 +31,10 @@ describe('PROVIDER_TABLE is a lookup, not a heuristic', () => {
   });
 
   test('every CANONICAL_FOR member resolves without a base_url', () => {
-    for (const [protocol, providers] of Object.entries(CANONICAL_FOR)) {
+    for (const [protocol, providers] of Object.entries(CANONICAL_FOR) as Array<[Protocol, string[]]>) {
       for (const provider of providers) {
         const resolved = resolveModel('m', { provider, model: 'x' }, {
-          [KEY_ENV_BY_PROTOCOL[protocol as keyof typeof KEY_ENV_BY_PROTOCOL]]: 'k',
+          [KEY_ENV_BY_PROTOCOL[protocol]]: 'k',
         });
         expect({ provider, status: resolved.health.status, protocol: resolved.protocol })
           .toEqual({ provider, status: 'ok', protocol });
@@ -250,8 +251,8 @@ describe('ModelsManager health, no-fallback and slow-file-change guard', () => {
 
     // save() stamps lastSelfWriteAt; the watcher's debounced init() must not
     // re-read that same mtime (a boolean flag would already have been cleared).
-    await manager.update('fast', { temperature: 0.5 });
-    expect(manager.models.fast.temperature).toBe(0.5);
+    await manager.update('fast', { api_key_name: 'TEST_KEY' });
+    expect(manager.models.fast.api_key_name).toBe('TEST_KEY');
 
     await writeFile(join(dir, 'models.json'), JSON.stringify({ tampered: { provider: 'openai', model: 'x' } }));
     const past = new Date(Date.now() - 60_000);
@@ -259,7 +260,7 @@ describe('ModelsManager health, no-fallback and slow-file-change guard', () => {
     await manager.init();
 
     expect(Object.keys(manager.models)).toEqual(['fast']);
-    expect(manager.models.fast.temperature).toBe(0.5);
+    expect(manager.models.fast.api_key_name).toBe('TEST_KEY');
   });
 
   test('a genuinely newer mtime is re-read', async () => {
@@ -285,7 +286,9 @@ describe('ModelsManager health, no-fallback and slow-file-change guard', () => {
       await m.init();
       expect(m.health.legacy.status).toBe('unusable');
 
-      await m.update('legacy', { temperature: 0.2 });
+      // An arbitrary (but real) field, only to prove the partial write lands; it
+      // names the key the model already resolves against so health is unchanged.
+      await m.update('legacy', { api_key_name: 'OPENAI_API_KEY' });
 
       expect(m.models.legacy.reasoning_effort).toBeUndefined();
       const onDisk = await Bun.file(path).json();

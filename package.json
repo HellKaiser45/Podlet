@@ -12,7 +12,9 @@
     "models:upgrade": "bun run scripts/models-upgrade.ts",
     "mcp:probe": "bun run apps/gateway/scripts/probe-mcp-schemas.ts",
     "dev:gateway": "bun --filter @podlet/gateway dev",
-    "dev:web": "bun --filter @podlet/web dev"
+    "dev:web": "bun --filter @podlet/web dev",
+    "typecheck:gateway": "tsc -p apps/gateway --noEmit && tsc -p apps/gateway/tsconfig.test.json",
+    "typecheck": "bun run typecheck:gateway && tsc -p apps/web --noEmit"
   },
   "dependencies": {
     "@elysiajs/openapi": "^1.4.14"

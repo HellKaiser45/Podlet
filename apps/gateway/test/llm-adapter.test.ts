@@ -8,7 +8,10 @@ import type { Protocol, ProviderQuirks } from '../src/types';
 const noQuirks: ProviderQuirks = {};
 
 describe('mapReasoning', () => {
-  const TIERS: Array<[Protocol, 'low' | 'medium' | 'high', string]> = [
+  // `as const` keeps each row's narrow literal types through `test.each`
+  // destructuring, so `level` stays a ReasoningLevel rather than widening to
+  // `string`.
+  const TIERS = [
     ['openai', 'low', 'low'],
     ['openai', 'medium', 'medium'],
     ['openai', 'high', 'max'],
@@ -18,7 +21,7 @@ describe('mapReasoning', () => {
     ['google', 'low', 'low'],
     ['google', 'medium', 'medium'],
     ['google', 'high', 'high'],
-  ];
+  ] as const;
 
   test.each(TIERS)('%s / %s maps to the tier table', (protocol, level, expected) => {
     expect(mapReasoning(protocol, level, noQuirks)).toBe(expected);
@@ -220,6 +223,7 @@ describe('runLlmStream', () => {
       model,
       system: 'system',
       messages: [{ role: 'user', content: 'hi' }],
+      onUsage: () => {},
     })) {
       chunks.push(chunk);
     }
@@ -280,6 +284,7 @@ describe('runLlmStream', () => {
       model,
       system: 'system',
       messages: [{ role: 'user', content: 'hi' }],
+      onUsage: () => {},
     })) {
       chunks.push(chunk);
     }
@@ -323,6 +328,7 @@ describe('runLlmStream', () => {
       model,
       system: 'system',
       messages: [{ role: 'user', content: 'hi' }],
+      onUsage: () => {},
     })) {
       chunks.push(chunk);
     }

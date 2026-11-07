@@ -7,6 +7,7 @@ import type {
 import { streamText } from 'ai';
 import type { LiteLLMDelta, LiteLLMStreamedChunk, ThinkingAnthropic } from '../types';
 import type { ReasoningLevel } from './thinking';
+import type { LlmCallOutcome, NormalizedUsage } from './usage';
 import { normalizeUsage } from './usage';
 import { createWarningLogger, describeWarning, namesRequestedCapability } from './warnings';
 
@@ -41,6 +42,28 @@ export type RunLlmStreamOptions = {
    */
   reasoning?: ReasoningLevel;
   abortSignal?: AbortSignal;
+  /**
+   * Called exactly once per call, for every terminal outcome — including a
+   * mid-stream throw and a caller that abandons the generator. Required,
+   * because `bun test` transpiles without type-checking and a missing callback
+   * would otherwise lose the record silently at runtime.
+   */
+  onUsage: (outcome: LlmCallOutcome) => void;
+};
+
+/** Usage for a call the provider never reported on: everything absent. */
+const NO_USAGE: NormalizedUsage = {
+  inputTokens: undefined,
+  outputTokens: undefined,
+  totalTokens: undefined,
+  cacheReadTokens: undefined,
+  cacheWriteTokens: undefined,
+  noCacheTokens: undefined,
+  reasoningTokens: undefined,
+  textTokens: undefined,
+  usageReported: false,
+  rawJson: undefined,
+  rawTruncated: false,
 };
 
 /** Accumulator for one provider reasoning block, keyed by the provider part id. */
@@ -57,6 +80,34 @@ type ReasoningBuffer = {
 export async function* runLlmStream(
   options: RunLlmStreamOptions,
 ): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
+  const callId = crypto.randomUUID();
+  let recorded = false;
+
+  /**
+   * Report the one outcome of this call. First call wins: the `finally` below
+   * always fires, and must be a no-op once a `finish` already reported. The
+   * try/catch wraps ONLY the user callback — a throwing sink must not kill an
+   * already-billed call, and the terminal chunk must still be yielded.
+   */
+  const report = (
+    outcome: LlmCallOutcome['outcome'],
+    finishReason: string,
+    usage: Parameters<typeof normalizeUsage>[0],
+  ): void => {
+    if (recorded) return;
+    recorded = true;
+    try {
+      options.onUsage({
+        callId,
+        outcome,
+        finishReason,
+        usage: usage === undefined ? NO_USAGE : normalizeUsage(usage),
+      });
+    } catch (e) {
+      console.error('[llm] usage callback threw', e);
+    }
+  };
+
   const result = streamText({
     model: options.model,
     system: options.system,
@@ -94,99 +145,112 @@ export async function* runLlmStream(
   // buffered and emitted exactly once on `reasoning-end`.
   const reasoningById = new Map<string, ReasoningBuffer>();
 
-  for await (const part of result.fullStream) {
-    switch (part.type) {
-      case 'text-delta':
-        yield textDeltaChunk(part.text);
-        break;
+  try {
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case 'text-delta':
+          yield textDeltaChunk(part.text);
+          break;
 
-      case 'reasoning-delta': {
-        const entry = reasoningById.get(part.id) ?? { text: '' };
-        entry.text += part.text;
-        const anthropic = part.providerMetadata?.anthropic;
-        const signature = anthropic?.signature;
-        if (typeof signature === 'string') entry.signature = signature;
-        const redactedData = anthropic?.redactedData;
-        if (typeof redactedData === 'string') entry.redactedData = redactedData;
-        reasoningById.set(part.id, entry);
-        break;
-      }
-
-      case 'reasoning-end': {
-        yield* drainReasoning(part.id, reasoningById);
-        break;
-      }
-
-      case 'tool-input-start': {
-        const index = toolCallCounter++;
-        indexById.set(part.id, index);
-        yield toolStartChunk(index, part.id, part.toolName);
-        break;
-      }
-
-      case 'tool-input-delta': {
-        const index = indexById.get(part.id);
-        if (index === undefined) {
-          throw new Error(`tool-input-delta for unknown tool input id '${part.id}'`);
+        case 'reasoning-delta': {
+          const entry = reasoningById.get(part.id) ?? { text: '' };
+          entry.text += part.text;
+          const anthropic = part.providerMetadata?.anthropic;
+          const signature = anthropic?.signature;
+          if (typeof signature === 'string') entry.signature = signature;
+          const redactedData = anthropic?.redactedData;
+          if (typeof redactedData === 'string') entry.redactedData = redactedData;
+          reasoningById.set(part.id, entry);
+          break;
         }
-        idsWithDeltas.add(part.id);
-        yield toolArgumentsDeltaChunk(index, part.delta);
-        break;
-      }
 
-      case 'tool-call': {
-        // A provider that streams only the final tool-call (no input deltas)
-        // leaves MessageAccumulator with empty arguments. Synthesize one delta
-        // carrying the full JSON so the accumulator sees complete arguments.
-        if (!idsWithDeltas.has(part.toolCallId)) {
-          let index = indexById.get(part.toolCallId);
+        case 'reasoning-end': {
+          yield* drainReasoning(part.id, reasoningById);
+          break;
+        }
+
+        case 'tool-input-start': {
+          const index = toolCallCounter++;
+          indexById.set(part.id, index);
+          yield toolStartChunk(index, part.id, part.toolName);
+          break;
+        }
+
+        case 'tool-input-delta': {
+          const index = indexById.get(part.id);
           if (index === undefined) {
-            index = toolCallCounter++;
-            indexById.set(part.toolCallId, index);
-            yield toolStartChunk(index, part.toolCallId, part.toolName);
+            throw new Error(`tool-input-delta for unknown tool input id '${part.id}'`);
           }
-          yield toolArgumentsDeltaChunk(index, JSON.stringify(part.input));
+          idsWithDeltas.add(part.id);
+          yield toolArgumentsDeltaChunk(index, part.delta);
+          break;
         }
-        break;
-      }
 
-      case 'error': {
-        throw part.error instanceof Error ? part.error : new Error(String(part.error));
-      }
-
-      case 'finish': {
-        // An unterminated reasoning block must not be silently dropped.
-        for (const id of [...reasoningById.keys()]) {
-          yield* drainReasoning(id, reasoningById);
+        case 'tool-call': {
+          // A provider that streams only the final tool-call (no input deltas)
+          // leaves MessageAccumulator with empty arguments. Synthesize one delta
+          // carrying the full JSON so the accumulator sees complete arguments.
+          if (!idsWithDeltas.has(part.toolCallId)) {
+            let index = indexById.get(part.toolCallId);
+            if (index === undefined) {
+              index = toolCallCounter++;
+              indexById.set(part.toolCallId, index);
+              yield toolStartChunk(index, part.toolCallId, part.toolName);
+            }
+            yield toolArgumentsDeltaChunk(index, JSON.stringify(part.input));
+          }
+          break;
         }
-        // `totalUsage` is the field on the finish part: TextStreamFinishPart is
-        // { type: 'finish'; finishReason; rawFinishReason; totalUsage }
-        // (ai dist/index.d.ts:3163-3168).
-        logUsage(part.totalUsage);
-        yield finishChunk(part.finishReason);
-        break;
-      }
 
-      default:
-        break;
-    }
-  }
+        case 'error': {
+          report('error', 'error', undefined);
+          throw part.error instanceof Error ? part.error : new Error(String(part.error));
+        }
 
-  const warnings = await warningsPromise;
-  if (warnings) {
-    const scope = warningScope(options.model);
-    for (const raw of warnings) {
-      const warning = describeWarning(raw);
-      warningLogger.log(warning, scope);
-      // Deliberately outside the dedupe: a dropped requested capability must
-      // fail every call, not just the first one that reported it.
-      if (warning.type === 'unsupported' && namesRequestedCapability(warning)) {
-        throw new Error(
-          `provider did not apply requested capability '${warning.feature}'` +
-            (warning.details ? `: ${warning.details}` : ''),
-        );
+        case 'finish': {
+          // An unterminated reasoning block must not be silently dropped.
+          for (const id of [...reasoningById.keys()]) {
+            yield* drainReasoning(id, reasoningById);
+          }
+          // `totalUsage` is the field on the finish part: TextStreamFinishPart is
+          // { type: 'finish'; finishReason; rawFinishReason; totalUsage }
+          // (ai dist/index.d.ts:3163-3168).
+          logUsage(part.totalUsage);
+          // BEFORE the yield: chat-loop returns out of the `for await` on
+          // length / content_filter / default, which drops this generator and
+          // would skip anything placed after the yield.
+          report('finish', mapFinishReason(part.finishReason), part.totalUsage);
+          yield finishChunk(part.finishReason);
+          break;
+        }
+
+        default:
+          break;
       }
     }
+
+    const warnings = await warningsPromise;
+    if (warnings) {
+      const scope = warningScope(options.model);
+      for (const raw of warnings) {
+        const warning = describeWarning(raw);
+        warningLogger.log(warning, scope);
+        // Deliberately outside the dedupe: a dropped requested capability must
+        // fail every call, not just the first one that reported it.
+        if (warning.type === 'unsupported' && namesRequestedCapability(warning)) {
+          throw new Error(
+            `provider did not apply requested capability '${warning.feature}'` +
+              (warning.details ? `: ${warning.details}` : ''),
+          );
+        }
+      }
+    }
+  } finally {
+    // Covers every non-`finish` termination that would otherwise lose the row:
+    // an unknown tool-input id, the unsupported-capability throw above (which
+    // fires after a successful stream), a stream that ends with no `finish` at
+    // all, and a caller abandoning the generator. No-op if already reported.
+    report('incomplete', 'incomplete', undefined);
   }
 }
 
@@ -273,28 +337,30 @@ function toolArgumentsDeltaChunk(index: number, deltaText: string): LiteLLMStrea
   });
 }
 
-function finishChunk(reason: FinishReason): LiteLLMStreamedChunk {
-  // Map to the legacy literals chat-loop switches on. Anything outside the
-  // named cases is emitted verbatim so chat-loop's `default` branch raises a
-  // RUN_ERROR (no silent truncation).
-  let finishReason: string;
+/**
+ * Map the SDK finish reason to the legacy literals chat-loop switches on.
+ * Shared by the terminal chunk and the usage record so the two can never
+ * disagree about what the call actually ended with.
+ */
+export function mapFinishReason(reason: FinishReason): string {
   switch (reason) {
     case 'tool-calls':
-      finishReason = 'tool_calls';
-      break;
+      return 'tool_calls';
     case 'stop':
-      finishReason = 'stop';
-      break;
+      return 'stop';
     case 'length':
-      finishReason = 'length';
-      break;
+      return 'length';
     case 'content-filter':
-      finishReason = 'content_filter';
-      break;
+      return 'content_filter';
     default:
-      finishReason = reason;
+      // Emitted verbatim so chat-loop's `default` branch raises a RUN_ERROR
+      // (no silent truncation).
+      return reason;
   }
+}
+
+function finishChunk(reason: FinishReason): LiteLLMStreamedChunk {
   return {
-    choices: [{ index: INDEX, delta: {}, finish_reason: finishReason }],
+    choices: [{ index: INDEX, delta: {}, finish_reason: mapFinishReason(reason) }],
   } as unknown as LiteLLMStreamedChunk;
 }
