@@ -13,11 +13,18 @@ import { computeConversationId, conversationHeaders } from './llm/conversation';
 import { runLlmStream } from './llm/stream';
 import { findUnenforceableSchemaKeywords, keywordsUnenforceableOn } from './llm/schema-compat';
 import { createWarningLogger } from './llm/warnings';
+import type { UsageRecord } from './llm/usage';
 import type { ChatCompletionTool } from '@podlet/types';
 
 /** A fully-resolved in-process LLM request (no HTTP transport). */
 type ResolvedRequest = {
   agentId: string;
+  /**
+   * The models.json key (e.g. "fast"). Neither `providerName` (the provider
+   * name, e.g. "openrouter") nor the language model's `provider`
+   * (e.g. "openrouter.chat") is the config key, so it is carried explicitly.
+   */
+  modelKey: string;
   /** The model's `provider` name, used to pick the SDK factory. */
   providerName: string;
   protocol: Protocol;
@@ -89,6 +96,7 @@ export class AgentClient {
 
     return {
       agentId,
+      modelKey: agent.model,
       providerName: model.provider,
       protocol: resolved.protocol,
       modelId: model.model,
@@ -102,7 +110,12 @@ export class AgentClient {
     };
   }
 
-  async *chatStream(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
+  async *chatStream(
+    agentId: string,
+    history: LiteLLMMessage[],
+    vfileSystem: VirtualFileSystem,
+    meta: { runId: string; frameId: string; parentFrameId?: string },
+  ): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
     const request = await this.buildRequest(agentId, history, vfileSystem);
 
     // `providerName` is the string handed to the provider factory, which is the
@@ -147,10 +160,24 @@ export class AgentClient {
         : undefined,
       // `undefined` omits the option entirely: `none` sends nothing at all.
       reasoning: mapReasoning(request.protocol, request.thinking, request.resolved.quirks),
-      // The usage record is assembled HERE in a later phase: `chatStream` owns
-      // the identity the adapter cannot know (runId, frameId, agentId, model
-      // key, protocol). Until then the callback is a no-op.
-      onUsage: () => {},
+      // The adapter emits what it knows (callId, outcome, usage); `chatStream`
+      // owns the identity it cannot know (runId, frameId, agentId, model key,
+      // protocol). `callId` is never re-minted here.
+      onUsage: (outcome) => {
+        const record: UsageRecord = {
+          ...outcome,
+          runId: meta.runId,
+          frameId: meta.frameId,
+          parentFrameId: meta.parentFrameId,
+          agentId,
+          model: request.modelKey,
+          provider: request.providerName,
+          protocol: request.protocol,
+          // Computed, never a constant: was usage requested from this endpoint?
+          usageRequested: request.resolved.quirks.no_stream_options !== true,
+        };
+        this.appContainer.usageSink(record);
+      },
     });
   }
 

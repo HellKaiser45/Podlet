@@ -27,7 +27,11 @@ beforeAll(async () => {
 
   // Only the two members these routes touch; the rest of the container is
   // irrelevant to the body-schema round-trip under test.
-  const container = { agentManager: manager, eventManager: {} } as unknown as AppContainer;
+  const container = {
+    agentManager: manager,
+    eventManager: {},
+    usageSink: () => {},
+  } as unknown as AppContainer;
   // `container` is a deliberate partial mock (only the two members below), so
   // the plugin's inferred route type cannot line up with a bare `Elysia`; the
   // app is only driven through `.handle()` in this file.

@@ -82,6 +82,11 @@ export function chatRoutes(container: AppContainer) {
     .get(`/history/:runid`, async function ({ params }) {
       return await container.historyManager.getByRunId(params.runid)
     })
+    .get(`/history/:runid/usage`, async function ({ params }) {
+      // An unknown run returns the zeroed shape (reported/requested false),
+      // never a 404, mirroring the history route which returns [].
+      return await container.usageManager.totals(params.runid)
+    })
     .get('runids', async function (): Promise<{ runId: string; preview: string | null; label: string | null; createdAt: Date | null }[]> {
       return await container.historyManager.getAllRuns()
     })
@@ -100,6 +105,11 @@ export function chatRoutes(container: AppContainer) {
     })
     .delete('chat/:runid', async ({ params }) => {
       console.log('deleting chat history for runId: ', params.runid)
+
+      // Usage first and unconditionally: there is no transaction, so order
+      // decides what survives a mid-way throw. Usage must not outlive the run.
+      await container.usageManager.deleteByRunId(params.runid)
+
       const exists = await container.historyManager.exists(params.runid);
       if (exists) await container.historyManager.deleteByRunId(params.runid)
 

@@ -53,6 +53,7 @@ function makeHarness(): Harness {
     historyManager: {
       update: async (_runId: string, history: LiteLLMMessage[]) => { persisted.push(history); },
     },
+    usageSink: () => {},
   };
   return {
     orchestrator: new AgentOrchestrator(container as unknown as AppContainer),

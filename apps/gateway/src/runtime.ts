@@ -15,6 +15,8 @@ import { AgentToolManager } from "./tools/agents-as-tools";
 import { AgentEventStream } from "./stream_handler";
 import { HilManager } from "./hil/hil-manager";
 import { HistoryCRUDClient } from "./db/db_history_client";
+import { UsageCRUDClient } from "./db/db_usage_client";
+import type { UsageRecord } from "./llm/usage";
 import PromptsManager from "./system/prompts";
 import { applyEnvFile } from "./system/env";
 
@@ -31,14 +33,27 @@ export default class AppContainer {
   initConfig: AppConfig;
   agentToolsManager: AgentToolManager;
   historyManager: HistoryCRUDClient;
+  usageManager: UsageCRUDClient;
   eventManager: Record<string, AgentEventStream> = {}
+  /**
+   * Fire-and-forget sink for one LLM call's usage. Never awaited by the caller:
+   * a failed write must log and must not change the run's outcome.
+   */
+  usageSink: (record: UsageRecord) => void;
   private watchers: FSWatcher[] = [];
+  private snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(appconfig: AppConfig) {
     this.initConfig = appconfig
     const db = createDB(appconfig.podletDir, appconfig.dbName)
     this.frameCRUD = new FrameCRUDClient(db)
     this.historyManager = new HistoryCRUDClient(db)
+    this.usageManager = new UsageCRUDClient(db)
+    this.usageSink = (rec) => {
+      void this.usageManager.record(rec)
+        .then(() => this.scheduleUsageSnapshot(rec.runId))
+        .catch(err => console.error('[usage] write failed', err));
+    }
     this.hillManager = new HilManager(appconfig.safemode)
     this.mcpManager = new MCPManager(appconfig.podletDir)
     this.modelManager = new ModelsManager(appconfig.podletDir)
@@ -117,6 +132,31 @@ export default class AppContainer {
         fn();
       }, ms);
     };
+  }
+
+  /**
+   * Debounce per run id. `debounce()` above cannot be reused: it ignores its
+   * `key` argument and returns a fresh closure on every call, so it debounces
+   * nothing across runs.
+   */
+  private scheduleUsageSnapshot(runId: string): void {
+    const existing = this.snapshotTimers.get(runId);
+    if (existing) clearTimeout(existing);
+
+    this.snapshotTimers.set(runId, setTimeout(() => {
+      this.snapshotTimers.delete(runId);
+      void this.emitUsageSnapshot(runId).catch(err =>
+        console.error('[usage] snapshot failed', err));
+    }, 250));
+  }
+
+  // TODO phase 4.2: emit a CUSTOM USAGE_SNAPSHOT event through eventManager.
+  private async emitUsageSnapshot(runId: string): Promise<void> {
+    const totals = await this.usageManager.totals(runId);
+    console.log(
+      `[usage] run=${runId} calls=${totals.run.calls} total=${totals.run.total}` +
+        ` reported=${totals.reported} requested=${totals.requested}`,
+    );
   }
 
   private async startwatchers() {
