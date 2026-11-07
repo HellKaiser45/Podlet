@@ -83,7 +83,6 @@ Vous pouvez le personnaliser avant ou après cette première copie :
   "server": {
     "port": 3000,
     "host": "127.0.0.1",
-    "pythonPort": 8000,
     "webPort": 3002
   },
   "database": {
@@ -102,7 +101,6 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 |---|---|---|---|
 | `server.port` | nombre | `3000` | Port de l'API de la gateway. |
 | `server.host` | chaîne | `"127.0.0.1"` | Adresse d'écoute. Docker force `0.0.0.0`. |
-| `server.pythonPort` | nombre | `8000` | Port historique ; plus aucun service n'écoute dessus. |
 | `server.webPort` | nombre | `3002` | Port de l'interface web (natif uniquement). Détermine aussi l'origine CORS. |
 | `database.path` | chaîne | `"podlet.db"` | Nom du fichier SQLite dans `~/.podlet`. |
 | `features.safemode` | booléen | `false` | Validation humaine (Human-in-the-Loop) pour les appels d'outils destructeurs. |
@@ -115,7 +113,6 @@ Vous pouvez le personnaliser avant ou après cette première copie :
 | Paramètre | Natif | Docker |
 |---|---|---|
 | `server.port` | 🟢 modifiable | 🔴 laisser à `3000` — le mapping du compose cible cette valeur |
-| `server.pythonPort` | ⚪ sans effet | ⚪ sans effet — rien n'écoute dessus |
 | `server.webPort` | 🟢 modifiable | ⚪ sans effet — la gateway sert le bundle précompilé |
 | `server.host` | 🟢 modifiable | 🔵 forcé à `0.0.0.0` (géré automatiquement, non configurable par l'utilisateur) |
 

@@ -18,7 +18,6 @@ async function loadConfig(): Promise<AppConfig> {
   }
 
   const port = configFile.server?.port ?? 3000;
-  const pythonPort = configFile.server?.pythonPort ?? 8000;
   const webPort = configFile.server?.webPort ?? 3002;
   let host = configFile.server?.host ?? '127.0.0.1';
   const dbName = configFile.database?.path ?? 'podlet.db';
@@ -29,10 +28,6 @@ async function loadConfig(): Promise<AppConfig> {
     max_images_per_call: configFile.features?.vision?.max_images_per_call ?? 4,
   };
   const dbPath = join(podletDir, dbName);
-
-  const llmApiUrl = process.env.LLM_SERVICE_HOST
-    ? `http://${process.env.LLM_SERVICE_HOST}:${pythonPort}`
-    : `http://localhost:${pythonPort}`;
 
   let corsOrigin = `http://localhost:${webPort}`;
 
@@ -46,10 +41,8 @@ async function loadConfig(): Promise<AppConfig> {
     podletDir,
     dbName,
     dbPath,
-    llmApiUrl,
     port,
     host,
-    pythonPort,
     webPort,
     corsOrigin,
     safemode,

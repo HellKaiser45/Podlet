@@ -16,7 +16,6 @@ export interface ConfigFile {
   server?: {
     port?: number;
     host?: string;
-    pythonPort?: number;
     webPort?: number;
   };
   database?: {
@@ -78,10 +77,8 @@ export interface SeeImageReceipt {
 export interface AppConfig {
   podletDir: string;
   dbName: string;
-  llmApiUrl: string;
   port: number;
   host: string;
-  pythonPort: number;
   webPort: number;
   dbPath: string;
   corsOrigin: string;
