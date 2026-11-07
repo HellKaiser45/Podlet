@@ -101,7 +101,14 @@ export class AgentClient {
   async *chatStream(agentId: string, history: LiteLLMMessage[], vfileSystem: VirtualFileSystem): AsyncGenerator<LiteLLMStreamedChunk, void, unknown> {
     const request = await this.buildRequest(agentId, history, vfileSystem);
 
-    const providerOptions = buildProviderOptions(request.protocol, request.thinking, request.resolved.quirks);
+    // `providerName` is the string handed to the provider factory, which is the
+    // namespace the SDK resolves providerOptions under — not the protocol.
+    const providerOptions = buildProviderOptions(
+      request.protocol,
+      request.thinking,
+      request.resolved.quirks,
+      request.providerName,
+    );
     this.applyResponseFormat(request, providerOptions);
 
     const languageModel = buildLanguageModel(request.providerName, request.resolved, request.modelId);

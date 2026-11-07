@@ -58,7 +58,12 @@ const vfsStub = { getContextTree: async () => '' } as any;
 /** Resolve the request the way `chatStream` does, then produce its providerOptions. */
 async function resolveProviderOptions(container: any, agentId = 'echo') {
   const request = await container.agentClient.buildRequest(agentId, [], vfsStub);
-  return buildProviderOptions(request.protocol, request.thinking, request.resolved.quirks);
+  return buildProviderOptions(
+    request.protocol,
+    request.thinking,
+    request.resolved.quirks,
+    request.providerName,
+  );
 }
 
 async function drain(client: AgentClient) {
@@ -112,6 +117,19 @@ describe('reasoning_effort is built from agent.thinking', () => {
 
     expect('reasoning_effort' in providerOptions).toBe(false);
   });
+
+  // End-to-end through buildRequest: the model's `provider` string is what
+  // @ai-sdk/openai-compatible resolves providerOptions by, so the emitted key
+  // must follow the provider instance, not the protocol.
+  test("a non-canonical provider name ('opencode') emits its own key", async () => {
+    const { container } = makeContainer('high', okModel);
+    (container.modelManager.models.stub as ModelConfig).provider = 'opencode';
+
+    const providerOptions = await resolveProviderOptions(container);
+
+    expect(providerOptions).toEqual({ opencode: { reasoningEffort: 'max' } });
+    expect('openai' in providerOptions).toBe(false);
+  });
 });
 
 describe('a no_reasoning_effort quirk cannot silently swallow thinking', () => {
@@ -128,6 +146,14 @@ describe('a no_reasoning_effort quirk cannot silently swallow thinking', () => {
 
     await expect(resolveProviderOptions(container)).rejects.toThrow(
       "model 'stub': this provider rejects reasoning_effort; agent 'echo' requests thinking 'high'",
+    );
+  });
+
+  test("thinking 'low' fails loudly too, naming the model and the agent", async () => {
+    const { container } = makeContainer('low', noReasoningEffortModel);
+
+    await expect(resolveProviderOptions(container)).rejects.toThrow(
+      "model 'stub': this provider rejects reasoning_effort; agent 'echo' requests thinking 'low'",
     );
   });
 

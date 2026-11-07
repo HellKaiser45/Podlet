@@ -8,44 +8,87 @@ import type { Protocol, ProviderQuirks } from '../src/types';
 const noQuirks: ProviderQuirks = {};
 
 describe('buildProviderOptions', () => {
-  test.each<[Protocol, string, Record<string, Record<string, unknown>>]>([
-    ['openai', 'low', { openai: { reasoningEffort: 'low' } }],
-    ['openai', 'medium', { openai: { reasoningEffort: 'medium' } }],
-    ['openai', 'high', { openai: { reasoningEffort: 'max' } }],
+  test.each<[Protocol, string, string, Record<string, Record<string, unknown>>]>([
+    ['openai', 'low', 'openai', { openai: { reasoningEffort: 'low' } }],
+    ['openai', 'medium', 'openai', { openai: { reasoningEffort: 'medium' } }],
+    ['openai', 'high', 'openai', { openai: { reasoningEffort: 'max' } }],
     [
       'anthropic',
       'low',
+      'anthropic',
       { anthropic: { thinking: { type: 'enabled', budgetTokens: 1024 }, sendReasoning: true } },
     ],
     [
       'anthropic',
       'medium',
+      'anthropic',
       { anthropic: { thinking: { type: 'enabled', budgetTokens: 8192 }, sendReasoning: true } },
     ],
     [
       'anthropic',
       'high',
+      'anthropic',
       { anthropic: { thinking: { type: 'enabled', budgetTokens: 32000 }, sendReasoning: true } },
     ],
-    ['google', 'low', { google: { thinkingConfig: { thinkingLevel: 'low', includeThoughts: true } } }],
-    ['google', 'medium', { google: { thinkingConfig: { thinkingLevel: 'medium', includeThoughts: true } } }],
-    ['google', 'high', { google: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }],
-  ])('%s / %s maps to the tier table', (protocol, level, expected) => {
-    expect(buildProviderOptions(protocol, level as any, noQuirks)).toEqual(expected);
+    ['google', 'low', 'google', { google: { thinkingConfig: { thinkingLevel: 'low', includeThoughts: true } } }],
+    ['google', 'medium', 'google', { google: { thinkingConfig: { thinkingLevel: 'medium', includeThoughts: true } } }],
+    ['google', 'high', 'google', { google: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }],
+  ])('%s / %s / %s maps to the tier table', (protocol, level, providerName, expected) => {
+    expect(buildProviderOptions(protocol, level as any, noQuirks, providerName)).toEqual(expected);
   });
 
   test.each<Protocol>(['openai', 'anthropic', 'google'])(
     'none produces no providerOptions block on %s',
     (protocol) => {
-      expect(buildProviderOptions(protocol, 'none', noQuirks)).toEqual({});
-      expect(buildProviderOptions(protocol, undefined, noQuirks)).toEqual({});
+      expect(buildProviderOptions(protocol, 'none', noQuirks, 'opencode')).toEqual({});
+      expect(buildProviderOptions(protocol, undefined, noQuirks, 'opencode')).toEqual({});
     },
   );
 
   test('no_reasoning_effort throws instead of silently dropping thinking', () => {
-    expect(() => buildProviderOptions('openai', 'high', { no_reasoning_effort: true })).toThrow();
+    expect(() => buildProviderOptions('openai', 'high', { no_reasoning_effort: true }, 'openai')).toThrow();
     // `none` is unaffected by the quirk.
-    expect(buildProviderOptions('openai', 'none', { no_reasoning_effort: true })).toEqual({});
+    expect(buildProviderOptions('openai', 'none', { no_reasoning_effort: true }, 'openai')).toEqual({});
+  });
+
+  // The outer providerOptions key is the namespace the INSTANTIATED provider
+  // resolves, not the wire protocol. @ai-sdk/openai-compatible derives it from
+  // its own name (src/chat/openai-compatible-chat-language-model.ts:179), so an
+  // `opencode` instance never reads `providerOptions.openai` — emitting that key
+  // was the silent drop this case pins down.
+  test('a non-canonical openai-compatible provider name is the emitted key', () => {
+    expect(buildProviderOptions('openai', 'high', noQuirks, 'opencode')).toEqual({
+      opencode: { reasoningEffort: 'max' },
+    });
+    expect(buildProviderOptions('openai', 'medium', noQuirks, 'zai')).toEqual({
+      zai: { reasoningEffort: 'medium' },
+    });
+    expect(buildProviderOptions('openai', 'low', noQuirks, 'lm_studio')).toEqual({
+      lm_studio: { reasoningEffort: 'low' },
+    });
+  });
+
+  test('canonical openai still emits the openai key with max for high', () => {
+    expect(buildProviderOptions('openai', 'high', noQuirks, 'openai')).toEqual({
+      openai: { reasoningEffort: 'max' },
+    });
+  });
+
+  // anthropic/google hardcode their key in the SDK, so the model's provider
+  // string does not change it (`gemini` still resolves `providerOptions.google`).
+  test('anthropic and google keys are the SDK provider name, not the model provider string', () => {
+    expect(buildProviderOptions('google', 'high', noQuirks, 'gemini')).toEqual({
+      google: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } },
+    });
+    expect(buildProviderOptions('anthropic', 'low', noQuirks, 'anthropic')).toEqual({
+      anthropic: { thinking: { type: 'enabled', budgetTokens: 1024 }, sendReasoning: true },
+    });
+  });
+
+  test('a provider name the compatible SDK would truncate fails loudly', () => {
+    expect(() => buildProviderOptions('openai', 'high', noQuirks, 'my.endpoint')).toThrow(
+      /rename the provider without a '\.'/,
+    );
   });
 });
 
