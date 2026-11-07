@@ -13,11 +13,16 @@ export const [label, setLabel] = createSignal("");
 
 export const [uploading, setUploading] = createSignal(false);
 
+// The agent instance the user talks to directly. Every other instance is
+// spawned as a tool by another instance. Set at the start of each turn.
+export const [mainInstanceId, setMainInstanceId] = createSignal<string | null>(null);
+
 export interface ToolCall {
   id: string;
   name: string;
   args?: string;
   result?: string;
+  agentId: string;
 }
 
 export interface PendingApproval {
@@ -118,6 +123,31 @@ export function updateLastMessageContent(chunk: string) {
   }));
 }
 
+// Routes one text delta to the message of the instance that produced it: the
+// main assistant message for the instance the user talks to, a subagent
+// transcript for anything else. Shared by both stream handlers so a HIL resume
+// routes exactly like a fresh turn.
+function routeTextDelta(delta: string, instanceId: string | undefined, mainInstanceIdForTurn: string) {
+  if (instanceId === undefined || instanceId === mainInstanceIdForTurn) {
+    updateLastMessageContent(delta);
+    return;
+  }
+
+  setState(produce(conv => {
+    if (!conv.subagents[instanceId]) {
+      conv.subagents[instanceId] = [{ role: 'assistant', content: delta }];
+    } else {
+      const msgs = conv.subagents[instanceId];
+      const last = msgs[msgs.length - 1];
+      if (last?.role === 'assistant') {
+        last.content = (last.content ?? '') + delta;
+      } else {
+        msgs.push({ role: 'assistant', content: delta });
+      }
+    }
+  }));
+}
+
 function buildMessageWithAttachments(textMessage: string): ChatCompletionMessageParam {
   const fileAttachments = attachments();
   if (fileAttachments.length === 0) {
@@ -150,6 +180,18 @@ export function callstreamandhandleevents(message: string) {
 
   const agent = selectedAgent()
   if (!agent) throw new Error('agent not selected')
+
+  // A new user message starts a new turn: activity collected during the
+  // previous turn must not leak into this one.
+  setState({
+    tools: [],
+    subagents: {},
+    error: undefined,
+  })
+  setMainInstanceId(agent)
+
+  // Captured before the request so routing never depends on stream order.
+  const mainInstanceIdForTurn = agent;
 
   // Build rich message with image blocks (object URLs) for immediate display
   const messagetosend = buildMessageWithAttachments(message);
@@ -199,7 +241,7 @@ export function callstreamandhandleevents(message: string) {
 
         addMessage({ role: 'assistant', content: '' })
 
-        let mainAgentId: string | null = null;
+        let warnedMissingInstanceId = false;
 
         (async () => {
           try {
@@ -210,41 +252,20 @@ export function callstreamandhandleevents(message: string) {
               switch (chunk.data.type) {
                 case "TEXT_MESSAGE_CHUNK": {
                   if (!chunk.data.delta) break;
-                  const chunkAgentId = chunk.data.AgentId;
+                  const instanceId: string | undefined = chunk.data.AgentId;
 
-                  if (mainAgentId === null) {
-                    mainAgentId = chunkAgentId;
-                    console.log('[chat.store] main agent detected:', mainAgentId);
+                  // A malformed event must not crash or silently misroute the UI.
+                  if (instanceId === undefined && !warnedMissingInstanceId) {
+                    warnedMissingInstanceId = true;
+                    console.warn('[chat.store] TEXT_MESSAGE_CHUNK without AgentId; routing delta to the main message');
                   }
 
-                  if (chunkAgentId === mainAgentId) {
-                    updateLastMessageContent(chunk.data.delta);
-                  } else {
-                    setState(produce(conv => {
-                      const delta = chunk.data.delta;
-                      if (!conv.subagents[chunkAgentId]) {
-                        conv.subagents[chunkAgentId] = [{ role: 'assistant', content: delta }];
-                      } else {
-                        const msgs = conv.subagents[chunkAgentId];
-                        const last = msgs[msgs.length - 1];
-                        if (last?.role === 'assistant') {
-                          last.content = (last.content ?? '') + delta;
-                        } else {
-                          msgs.push({ role: 'assistant', content: delta });
-                        }
-                      }
-                    }));
-                  }
+                  routeTextDelta(chunk.data.delta, instanceId, mainInstanceIdForTurn);
                   break;
                 }
                 case "TOOL_CALL_START": {
-                  const currentTools = state.tools;
-                  const pendingCount = currentTools.filter(t => t.result === undefined).length;
                   setState('tools', tools => {
-                    if (pendingCount === 0) {
-                      return [{ id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
-                    }
-                    return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+                    return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '', agentId: chunk.data.AgentId }];
                   });
                   break;
                 }
@@ -319,6 +340,11 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
   const agent = selectedAgent();
   if (!agent) throw new Error('agent not selected');
 
+  // The resume continues the same turn. tools / subagents / error are NOT
+  // reset: rows collected before the approval must survive the continuation.
+  setMainInstanceId(agent);
+  const mainInstanceIdForTurn = agent;
+
   setState({ pendingApprovals: [] });
 
   invalidateStream();
@@ -340,6 +366,8 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
       return;
     }
 
+    let warnedMissingInstanceId = false;
+
     (async () => {
       try {
         for await (const chunk of data) {
@@ -348,17 +376,20 @@ export function resumeWithDecision(decisions: Record<string, { approved: boolean
           switch (chunk.data.type) {
             case "TEXT_MESSAGE_CHUNK": {
               if (!chunk.data.delta) break;
-              updateLastMessageContent(chunk.data.delta);
+              const instanceId: string | undefined = chunk.data.AgentId;
+
+              // A malformed event must not crash or silently misroute the UI.
+              if (instanceId === undefined && !warnedMissingInstanceId) {
+                warnedMissingInstanceId = true;
+                console.warn('[chat.store] TEXT_MESSAGE_CHUNK without AgentId; routing delta to the main message');
+              }
+
+              routeTextDelta(chunk.data.delta, instanceId, mainInstanceIdForTurn);
               break;
             }
             case "TOOL_CALL_START": {
-              const currentTools = state.tools;
-              const pendingCount = currentTools.filter(t => t.result === undefined).length;
               setState('tools', tools => {
-                if (pendingCount === 0) {
-                  return [{ id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
-                }
-                return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '' }];
+                return [...tools, { id: chunk.data.toolCallId, name: chunk.data.toolCallName, args: '', agentId: chunk.data.AgentId }];
               });
               break;
             }

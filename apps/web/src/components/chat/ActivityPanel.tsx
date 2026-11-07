@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { state } from "../../stores/chat.store";
+import { state, mainInstanceId } from "../../stores/chat.store";
 import type { ToolCall } from "../../stores/chat.store";
 import type { ChatCompletionMessageParam } from "@podlet/types";
 
@@ -34,6 +34,11 @@ function ToolRow(props: { tool: ToolCall }) {
         />
         <span class="text-xs font-mono text-base-content/50">fn</span>
         <span class="font-semibold font-mono">{props.tool.name}</span>
+        <Show when={props.tool.agentId !== mainInstanceId()}>
+          <span class="badge badge-ghost badge-xs font-mono text-[10px] text-base-content/40 max-w-[10rem] truncate">
+            {props.tool.agentId}
+          </span>
+        </Show>
         <Show when={!isDone()}>
           <span class="loading loading-dots loading-xs ml-1 text-base-content/40" />
         </Show>
@@ -85,7 +90,7 @@ function SubagentRow(props: { agentId: string; messages: ChatCompletionMessagePa
           class={`size-2 rounded-full shrink-0 ${isActive() ? 'bg-info animate-pulse' : 'bg-info'
             }`}
         />
-        <span class="text-xs font-mono text-base-content/50">agent</span>
+        <span class="text-xs font-mono text-base-content/50">instance</span>
         <span class="font-semibold truncate max-w-[12rem]">{props.agentId}</span>
         <Show when={!open()}>
           <span class="text-xs text-base-content/40 truncate flex-1 ml-1">
@@ -137,14 +142,14 @@ export default function ActivityPanel() {
           <span class="font-medium text-base-content/80">Agent Activity</span>
 
           {/* live badges */}
-          <Show when={pendingTools() > 0}>
+          <Show when={state.status === 'running' && pendingTools() > 0}>
             <span class="badge badge-warning badge-xs gap-1">
               {pendingTools()} running
             </span>
           </Show>
           <Show when={subagentIds().length > 0}>
             <span class="badge badge-info badge-xs">
-              {subagentIds().length} subagent{subagentIds().length > 1 ? 's' : ''}
+              {subagentIds().length} instance{subagentIds().length > 1 ? 's' : ''}
             </span>
           </Show>
 
@@ -162,9 +167,9 @@ export default function ActivityPanel() {
               </For>
             </Show>
 
-            {/* subagents */}
+            {/* agent instances */}
             <Show when={subagentIds().length > 0}>
-              <p class="text-xs text-base-content/40 pt-2 pb-1 uppercase tracking-wide">Subagents</p>
+              <p class="text-xs text-base-content/40 pt-2 pb-1 uppercase tracking-wide">Agent instances</p>
               <For each={subagentIds()}>
                 {(id) => (
                   <SubagentRow agentId={id} messages={state.subagents[id]} />
