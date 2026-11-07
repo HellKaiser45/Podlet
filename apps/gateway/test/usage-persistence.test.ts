@@ -248,15 +248,17 @@ describe('byFrame ordering', () => {
 
     // Pin both rows to the SAME millisecond: `ORDER BY created_at` inside a
     // GROUP BY is SQLite's undefined-bare-column case, so the tie would
-    // otherwise pick an arbitrary row.
+    // otherwise pick an arbitrary row. `frame_id` is the tiebreak, so the
+    // order is reproducible and not merely stable-by-accident.
     db.run(sql`update llm_usage set created_at = 1700000000000 where run_id = 'run-7'`);
 
     const first = await client.totals('run-7');
     const second = await client.totals('run-7');
 
-    // Whichever order the tie resolves to, it must be the SAME every time.
-    expect(first.byFrame.map(f => f.frameId)).toEqual(second.byFrame.map(f => f.frameId));
-    expect(first.byFrame.map(f => f.frameId).sort()).toEqual(['alpha', 'beta']);
+    // A total order: the exact expected sequence, not just agreement between
+    // two calls (which a stable-but-arbitrary tie would also satisfy).
+    expect(first.byFrame.map(f => f.frameId)).toEqual(['alpha', 'beta']);
+    expect(second.byFrame.map(f => f.frameId)).toEqual(['alpha', 'beta']);
   });
 
   test('orders by the earliest call of each frame', async () => {
@@ -279,7 +281,6 @@ describe('byFrame ordering', () => {
 // ---------------------------------------------------------------------------
 // 8. The primary key is the duplicate guard.
 // ---------------------------------------------------------------------------
-
 describe('a duplicate callId', () => {
   test('throws instead of silently overwriting', async () => {
     const client = freshClient();

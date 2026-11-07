@@ -6,7 +6,7 @@ import { getCoreToolDefinitions } from './tools/core/core_tools';
 import { VirtualFileSystem } from './system/sandbox';
 import { hydrateVisionHistory } from './system/vision-hydrate';
 import { thinkingQuirkConflict, type ResolvedModel } from './system/providers';
-import { buildLanguageModel } from './llm/provide';
+import { buildLanguageModel, requestsUsage } from './llm/provide';
 import { mapReasoning } from './llm/thinking';
 import { toModelMessages, toToolSet, withCacheControl } from './llm/messages';
 import { computeConversationId, conversationHeaders } from './llm/conversation';
@@ -174,7 +174,11 @@ export class AgentClient {
           provider: request.providerName,
           protocol: request.protocol,
           // Computed, never a constant: was usage requested from this endpoint?
-          usageRequested: request.resolved.quirks.no_stream_options !== true,
+          usageRequested: requestsUsage(
+            request.protocol,
+            request.providerName,
+            request.resolved.quirks,
+          ),
         };
         this.appContainer.usageSink(record);
       },

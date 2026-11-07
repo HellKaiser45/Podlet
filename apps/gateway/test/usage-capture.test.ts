@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach } from 'bun:test';
 import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
-import { buildLanguageModel } from '../src/llm/provide';
+import { buildLanguageModel, requestsUsage } from '../src/llm/provide';
 import { runLlmStream, mapFinishReason } from '../src/llm/stream';
 import { normalizeUsage } from '../src/llm/usage';
 import type { LlmCallOutcome } from '../src/llm/usage';
@@ -213,9 +213,36 @@ describe('onUsage fires exactly once per call', () => {
 
     await drain(runLlmStream({ model, messages: [{ role: 'user', content: 'hi' }], onUsage }));
 
-    // The SDK synthesizes a `finish` part for a stream that closes without one,
-    // so the adapter still records exactly one terminal outcome.
+    // The SDK synthesizes a `finish` part when the stream closes without one,
+    // and leaves `rawFinishReason` undefined on it. That must NOT be recorded
+    // as a successful `finish`: the call never finished.
     expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].outcome).toBe('incomplete');
+    expect(outcomes[0].finishReason).toBe('incomplete');
+    expect(outcomes[0].usage.usageReported).toBe(false);
+  });
+
+  test('a genuine provider finish is still recorded as "finish"', async () => {
+    // The counterpart to the test above: a real finish part carries a string
+    // `rawFinishReason`, so the synthesized/absent distinction is what decides.
+    const model = new MockLanguageModelV4({
+      doStream: {
+        stream: convertArrayToReadableStream([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'done' },
+          { type: 'text-end', id: 't1' },
+          STOP_FINISH,
+        ] as any),
+      },
+    });
+    const { outcomes, onUsage } = collector();
+
+    await drain(runLlmStream({ model, messages: [{ role: 'user', content: 'hi' }], onUsage }));
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].outcome).toBe('finish');
+    expect(outcomes[0].finishReason).toBe('stop');
   });
 
   test('a caller breaking out early reports outcome "incomplete" once', async () => {
@@ -320,6 +347,60 @@ describe('a throwing onUsage callback', () => {
 
     expect(logged).toHaveLength(1);
     expect(String(logged[0][0])).toContain('[llm] usage callback threw');
+  });
+
+  test('a raw payload that cannot be serialized still records exactly one outcome', async () => {
+    // `JSON.stringify` throws on a BigInt. The record must not vanish: the
+    // row degrades to `incomplete` (a truthful label) and the terminal chunk
+    // is still yielded.
+    const model = new MockLanguageModelV4({
+      doStream: {
+        stream: convertArrayToReadableStream([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 't1' },
+          { type: 'text-delta', id: 't1', delta: 'hi' },
+          { type: 'text-end', id: 't1' },
+          {
+            type: 'finish',
+            usage: {
+              inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
+              outputTokens: { total: 2, text: 2, reasoning: 0 },
+              raw: { unserializable: 1n },
+            },
+            finishReason: { unified: 'stop', raw: 'stop' },
+          },
+        ] as any),
+      },
+    });
+    const { outcomes, onUsage } = collector();
+
+    const logged: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+
+    let chunks: any[];
+    try {
+      chunks = await drain(runLlmStream({ model, messages: [{ role: 'user', content: 'hi' }], onUsage }));
+    } finally {
+      console.error = originalError;
+    }
+
+    // Exactly one report, and it is NOT silently dropped.
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].outcome).toBe('incomplete');
+    expect(outcomes[0].finishReason).toBe('incomplete');
+    expect(outcomes[0].usage.usageReported).toBe(false);
+    expect(outcomes[0].callId).toBeString();
+
+    // The terminal chunk chat-loop switches on is unaffected.
+    const finish = chunks.find((c) => c.choices[0].finish_reason !== null);
+    expect(finish).toBeDefined();
+    expect(finish.choices[0].finish_reason).toBe('stop');
+
+    // Both the (non-fatal) log line and the normalization failure were reported.
+    expect(logged.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -459,6 +540,43 @@ describe('normalizeUsage', () => {
     expect(parsed.originalLength).toBeGreaterThan(65536);
     expect(usage.rawJson!.length).toBeLessThan(65536);
   });
+
+  test('the cap is measured in UTF-8 bytes, not UTF-16 code units', () => {
+    // Height 40000 is 40000 code units but 80000 UTF-8 bytes, so a payload that
+    // is over the 64 KiB BYTE cap slips under a code-unit comparison.
+    const blob = '\u00e9'.repeat(40000);
+    expect(blob.length).toBe(40000);
+    expect(Buffer.byteLength(blob, 'utf8')).toBe(80000);
+
+    const usage = normalizeUsage({
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+      raw: { blob },
+    } as any);
+
+    expect(usage.rawTruncated).toBe(true);
+    const parsed = JSON.parse(usage.rawJson!);
+    expect(parsed.__truncated).toBe(true);
+    // `originalLength` is the BYTE length, the same unit as the cap.
+    expect(parsed.originalLength).toBeGreaterThan(65536);
+  });
+
+  test('raw: null carries no usage information', () => {
+    const usage = normalizeUsage({
+      inputTokens: 4,
+      outputTokens: 2,
+      totalTokens: 6,
+      raw: null,
+    } as any);
+
+    // "null" is not a usage object: reporting it as one would claim the
+    // provider answered when it said nothing.
+    expect(usage.usageReported).toBe(false);
+    expect(usage.rawJson).toBeUndefined();
+    // The numeric fields still pass through untouched.
+    expect(usage.inputTokens).toBe(4);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -491,5 +609,40 @@ describe('no_stream_options provider rows', () => {
     expect(resolved.health.status).toBe('ok');
     expect(resolved.quirks.opencode_session).toBe(true);
     expect(resolved.quirks.no_stream_options).toBe(true);
+  });
+
+  test('an opencode.ai endpoint reached under another provider name keeps BOTH quirks', () => {
+    // `isOpencode` matches on base_url as well as name, because opencode can be
+    // configured as a generic openai-compatible provider. Merging only the
+    // ROW's quirks would drop `no_stream_options` here and reintroduce the
+    // 400-on-every-call regression the quirk exists to prevent.
+    const resolved = resolveModel(
+      'oc-renamed',
+      { provider: 'moonshot', model: 'kimi', base_url: 'https://opencode.ai/v1' },
+      { MOONSHOT_API_KEY: 'sk-test' },
+    );
+    expect(resolved.health.status).toBe('ok');
+    expect(resolved.quirks.opencode_session).toBe(true);
+    expect(resolved.quirks.no_stream_options).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. `usageRequested` must describe the WIRE, not the config.
+// ---------------------------------------------------------------------------
+
+describe('requestsUsage', () => {
+  test('the canonical OpenAI factory always asks, whatever the quirk says', () => {
+    // createOpenAI hardcodes `stream_options.include_usage: true` and ignores
+    // the quirk, so recording "we never asked" here would contradict the wire.
+    expect(requestsUsage('openai', 'openai', { no_stream_options: true })).toBe(true);
+  });
+
+  test('a third-party openai-compatible endpoint honors the quirk', () => {
+    expect(requestsUsage('openai', 'openrouter', { no_stream_options: true })).toBe(false);
+  });
+
+  test('a third-party endpoint without the quirk does ask', () => {
+    expect(requestsUsage('openai', 'openrouter', {})).toBe(true);
   });
 });

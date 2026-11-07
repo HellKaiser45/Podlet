@@ -191,6 +191,11 @@ export default class AppContainer {
   }
 
   async cleanup() {
+    // A pending 250 ms snapshot timer must never fire against an exiting
+    // process: it would hold the event loop open and query a closed database.
+    for (const timer of this.snapshotTimers.values()) clearTimeout(timer);
+    this.snapshotTimers.clear();
+
     this.watchers.forEach(w => w.close());
     await this.mcpManager.stopAll();
   }

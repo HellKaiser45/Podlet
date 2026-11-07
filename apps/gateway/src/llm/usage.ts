@@ -41,11 +41,15 @@ export function normalizeUsage(usage: LanguageModelUsage | undefined): Normalize
   let rawJson: string | undefined;
   let rawTruncated = false;
 
-  if (raw !== undefined) {
+  if (raw != null) {
     const serialized = JSON.stringify(raw);
-    if (serialized.length > RAW_USAGE_MAX_LENGTH) {
+    // `serialized.length` is UTF-16 code units; the column is SQLite TEXT, whose
+    // practical limit is bytes, so the cap must be measured in UTF-8 bytes or a
+    // multi-byte payload slips past it.
+    const byteLength = Buffer.byteLength(serialized, 'utf8');
+    if (byteLength > RAW_USAGE_MAX_LENGTH) {
       // Never store a half-written string: the column is read back as JSON.
-      rawJson = JSON.stringify({ __truncated: true, originalLength: serialized.length });
+      rawJson = JSON.stringify({ __truncated: true, originalLength: byteLength });
       rawTruncated = true;
     } else {
       rawJson = serialized;
@@ -61,11 +65,14 @@ export function normalizeUsage(usage: LanguageModelUsage | undefined): Normalize
     noCacheTokens: usage?.inputTokenDetails?.noCacheTokens,
     reasoningTokens: usage?.outputTokenDetails?.reasoningTokens,
     textTokens: usage?.outputTokenDetails?.textTokens,
-    // `raw !== undefined` means the provider produced a usage object. Note that
+    // `raw != null` means the provider produced a usage object. `null` carries
+    // no usage information — and would otherwise serialize to the string
+    // "null", which `usageReported: true` would then report as a real report.
+    // Note that
     // anthropic always pre-seeds a zero accumulator and ends with
     // `raw: rawUsage ?? usage`, so this is always `true` there by SDK design —
     // the flag is uninformative on anthropic; `rawJson` is the audit trail.
-    usageReported: raw !== undefined,
+    usageReported: raw != null,
     rawJson,
     rawTruncated,
   };

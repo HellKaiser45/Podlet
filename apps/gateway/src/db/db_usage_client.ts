@@ -123,7 +123,9 @@ export class UsageCRUDClient {
       .groupBy(llm_usage.frameId, llm_usage.agentId, llm_usage.parentFrameId)
       // `min(created_at)`, never a bare `created_at`: inside a GROUP BY a bare
       // column is SQLite's undefined pick, so fan-out order would be arbitrary.
-      .orderBy(sql`min(${llm_usage.createdAt}) asc`);
+      // `frame_id` is the tiebreak: `min(created_at)` alone only orders by
+      // millisecond, so frames sharing one would otherwise tie arbitrarily.
+      .orderBy(sql`min(${llm_usage.createdAt}) asc`, llm_usage.frameId);
 
     const runRow = runRows[0];
 

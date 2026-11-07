@@ -295,7 +295,15 @@ export function resolveModel(
     key_source: keySource,
     headers,
     quirks: isOpencode(row, config.base_url, baseUrl)
-      ? { ...(row.quirks ?? {}), ...(config.quirks ?? {}), opencode_session: true }
+      ? {
+          ...(row.quirks ?? {}),
+          ...(config.quirks ?? {}),
+          opencode_session: true,
+          // Whatever the provider name, an opencode.ai endpoint rejects
+          // `stream_options`: without the opt-out every call 400s. A rename
+          // must not drop it (the row's own quirks are not merged here).
+          no_stream_options: true,
+        }
       : { ...(row.quirks ?? {}), ...(config.quirks ?? {}) },
   };
 }

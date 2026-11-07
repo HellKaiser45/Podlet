@@ -4,7 +4,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { ResolvedModel } from '../system/providers';
-import type { Protocol } from '../types';
+import type { Protocol, ProviderQuirks } from '../types';
 
 /**
  * Build the in-process LanguageModel for a resolved model entry.
@@ -57,7 +57,7 @@ export function buildLanguageModel(
         // `stream_options` is sent only when this flag is truthy
         // (@ai-sdk/openai-compatible dist/index.js:547). Endpoints that reject
         // unknown request fields declare `no_stream_options` to opt out.
-        includeUsage: resolved.quirks.no_stream_options !== true,
+        includeUsage: requestsUsage(resolved.protocol, name, resolved.quirks),
       }).chatModel(modelId);
     }
     case 'anthropic':
@@ -80,4 +80,18 @@ export function buildLanguageModel(
  */
 function isCanonicalOpenAI(providerName: string, protocol: Protocol): boolean {
   return protocol === 'openai' && providerName === 'openai';
+}
+
+/**
+ * Did this request actually ask the endpoint for a usage report? Must match
+ * what reaches the wire, not what the config requested: the canonical OpenAI
+ * factory hardcodes `stream_options.include_usage: true` and ignores the quirk.
+ */
+export function requestsUsage(
+  protocol: Protocol,
+  providerName: string,
+  quirks: ProviderQuirks,
+): boolean {
+  if (protocol === 'openai' && providerName === 'openai') return true;
+  return quirks.no_stream_options !== true;
 }

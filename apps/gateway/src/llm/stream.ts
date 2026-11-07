@@ -95,14 +95,26 @@ export async function* runLlmStream(
     usage: Parameters<typeof normalizeUsage>[0],
   ): void => {
     if (recorded) return;
-    recorded = true;
+    // Build the record BEFORE claiming the slot: `normalizeUsage` serializes
+    // the provider `raw` blob, and a `JSON.stringify` throw (a BigInt, a
+    // throwing `toJSON`) must degrade to `incomplete` rather than vanish —
+    // setting `recorded` first would make the `finally` a no-op and lose the
+    // row entirely.
+    let payload: LlmCallOutcome;
     try {
-      options.onUsage({
+      payload = {
         callId,
         outcome,
         finishReason,
         usage: usage === undefined ? NO_USAGE : normalizeUsage(usage),
-      });
+      };
+    } catch (e) {
+      console.error('[llm] usage normalization failed', e);
+      payload = { callId, outcome: 'incomplete', finishReason: 'incomplete', usage: NO_USAGE };
+    }
+    recorded = true;
+    try {
+      options.onUsage(payload);
     } catch (e) {
       console.error('[llm] usage callback threw', e);
     }
@@ -219,7 +231,18 @@ export async function* runLlmStream(
           // BEFORE the yield: chat-loop returns out of the `for await` on
           // length / content_filter / default, which drops this generator and
           // would skip anything placed after the yield.
-          report('finish', mapFinishReason(part.finishReason), part.totalUsage);
+          //
+          // The SDK synthesizes this part when the underlying stream closes
+          // without one, and leaves `rawFinishReason` undefined there; a
+          // genuine provider finish always carries a string (measured: 'stop',
+          // 'tool_calls'). An absent raw reason therefore means the call did
+          // NOT finish, and labelling it 'finish' would report a truncated
+          // stream as a success.
+          if (part.rawFinishReason === undefined) {
+            report('incomplete', 'incomplete', undefined);
+          } else {
+            report('finish', mapFinishReason(part.finishReason), part.totalUsage);
+          }
           yield finishChunk(part.finishReason);
           break;
         }
@@ -256,7 +279,16 @@ export async function* runLlmStream(
 
 /** One structured usage line per call. Nothing is persisted. */
 function logUsage(usage: Parameters<typeof normalizeUsage>[0]): void {
-  const normalized = normalizeUsage(usage);
+  let normalized: NormalizedUsage;
+  try {
+    normalized = normalizeUsage(usage);
+  } catch (e) {
+    // A provider `raw` that cannot be serialized must not cost the call its
+    // usage record AND its terminal chunk: `report` below is the record, and
+    // the `finish` part still has to be yielded. The line is diagnostics only.
+    console.error('[llm] usage log skipped', e);
+    return;
+  }
   console.log(
     `[llm] usage input=${fmt(normalized.inputTokens)} output=${fmt(normalized.outputTokens)}` +
       ` total=${fmt(normalized.totalTokens)} cacheRead=${fmt(normalized.cacheReadTokens)}` +
