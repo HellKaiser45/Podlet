@@ -11,6 +11,9 @@ import { mapReasoning } from './llm/thinking';
 import { toModelMessages, toToolSet, withCacheControl } from './llm/messages';
 import { computeConversationId, conversationHeaders } from './llm/conversation';
 import { runLlmStream } from './llm/stream';
+import { findUnenforceableSchemaKeywords, keywordsUnenforceableOn } from './llm/schema-compat';
+import { createWarningLogger } from './llm/warnings';
+import type { ChatCompletionTool } from '@podlet/types';
 
 /** A fully-resolved in-process LLM request (no HTTP transport). */
 type ResolvedRequest = {
@@ -78,6 +81,11 @@ export class AgentClient {
     }
     const conflict = thinkingQuirkConflict(agent.model, agentId, agent.thinking, resolved);
     if (conflict) throw new Error(conflict);
+
+    // Diagnostics only: names which TOOL carries a keyword the protocol drops,
+    // so the provider's own warning (which only names the model) is actionable.
+    // The schemas are reported, never rewritten.
+    reportUnenforceableSchemaKeywords(gatedTools, resolved.protocol);
 
     return {
       agentId,
@@ -187,6 +195,38 @@ export class AgentClient {
     throw new Error(
       `agent '${request.agentId}': response_format type '${String(type)}' is unsupported on the google protocol`,
     );
+  }
+}
+
+/**
+ * Process-wide, so one line per unique (tool, keyword) for the whole run: the
+ * request is rebuilt on every tool-loop iteration.
+ */
+const schemaWarningLogger = createWarningLogger();
+
+/**
+ * Log one line per unique (toolName, keyword) when the protocol cannot enforce
+ * the keyword. Silent for a protocol that enforces it, and silent when no tool
+ * carries one.
+ */
+function reportUnenforceableSchemaKeywords(
+  tools: ChatCompletionTool[],
+  protocol: Protocol,
+): void {
+  try {
+    const unenforceable = new Set(keywordsUnenforceableOn(protocol).map((entry) => entry.keyword));
+    if (unenforceable.size === 0) return;
+
+    for (const occurrence of findUnenforceableSchemaKeywords(tools)) {
+      if (!unenforceable.has(occurrence.keyword)) continue;
+      schemaWarningLogger.note(
+        `schema|${occurrence.toolName}|${occurrence.keyword}`,
+        `[llm] tool '${occurrence.toolName}' schema uses ${occurrence.keyword}` +
+          ` (${occurrence.path}) \u2014 ${protocol} protocol cannot enforce it`,
+      );
+    }
+  } catch {
+    // Diagnostics must never fail a request, whatever a hostile schema does.
   }
 }
 

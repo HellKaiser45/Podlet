@@ -47,6 +47,12 @@ export type WarningSink = (line: string) => void;
 export type WarningLogger = {
   /** Log at most one line per unique (scope, type, feature, details) key. */
   log(warning: DescribedWarning, scope?: string): void;
+  /**
+   * Log at most one pre-formatted line per unique `key`. For diagnostics that
+   * are not a provider `CallWarning` (they have no type/feature to flatten) but
+   * still need this logger's process-wide dedupe rather than a second one.
+   */
+  note(key: string, line: string): void;
 };
 
 /**
@@ -61,6 +67,12 @@ export function createWarningLogger(sink: WarningSink = (line) => console.warn(l
   const seen = new Set<string>();
 
   return {
+    note(key: string, line: string): void {
+      if (seen.has(key)) return;
+      seen.add(key);
+      sink(line);
+    },
+
     log(warning: DescribedWarning, scope?: string): void {
       const key = `${scope ?? ''}|${warning.type}|${warning.feature}|${warning.details ?? ''}`;
       if (seen.has(key)) return;
