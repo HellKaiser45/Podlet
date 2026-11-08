@@ -10,7 +10,7 @@ import { ChatCompletionContentPart, ChatCompletionUserMessageParam } from "opena
 import { createCanvas } from "@napi-rs/canvas";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { type OfficeContentNode, type HeadingMetadata, type ListMetadata, parseOffice } from 'officeparser'
-import * as fflate from 'fflate';
+import * as fflate from "fflate";
 import { SerialQueue } from "../utils/serial-queue";
 
 const MAX_PDF_PAGES = 20;
@@ -882,7 +882,6 @@ ${tree}
         const prepared = await prepareImage(
           new Uint8Array(await file.arrayBuffer()),
           file.type,
-          { maxEdge: 1568 },
         );
 
         if (prepared.ok === false) {
