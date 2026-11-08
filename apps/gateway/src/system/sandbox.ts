@@ -221,9 +221,13 @@ export async function ensureRunRoot(
   for (const name of allowedSkills) {
     const target = join(podletDir, "skills", name);
     try {
-      if (!(await stat(target)).isDirectory()) continue;
+      if (!(await stat(target)).isDirectory()) {
+        console.warn(`[vfs] run ${runId}: skill "${name}" resolves to ${target} which is not a directory; not linked`);
+        continue;
+      }
     } catch {
-      continue; // skill not installed — nothing to link
+      console.warn(`[vfs] run ${runId}: skill "${name}" is not installed (no ${target}); nothing to link`);
+      continue;
     }
     await ensureSymlink(target, join(runRoot, "skills", name));
   }
@@ -303,9 +307,15 @@ export class VirtualFileSystem {
   ) {
     this.rootDir = rootDir;
     this.runId = runId;
-    this.allowedSkills = (options.skills ?? []).filter(
+    const assigned = options.skills ?? [];
+    this.allowedSkills = assigned.filter(
       name => !options.skillManager || !!options.skillManager.availableSkills[name],
     );
+
+    const dropped = assigned.filter(name => !this.allowedSkills.includes(name));
+    if (dropped.length > 0) {
+      console.warn(`[vfs] run ${runId}: skill(s) assigned to the agent but not installed under that name: ${dropped.join(', ')} — access to skills/<name>/ will be denied`);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -635,11 +645,20 @@ export class VirtualFileSystem {
       (["workspace", "artifacts"] as const).map(s => this.getRootTree(s)),
     );
     const tree = trees.join("\n\n");
+    const installedSkills = this.allowedSkills.join(", ");
+
+    const skillsRule = this.allowedSkills.length === 0
+      ? `6. \`skills/\` is **read-only** and is **empty for this run**: none of the skills assigned to this agent is installed. Do NOT attempt to read \`skills/\` — access will be denied. If the task needs a skill, say which one is missing and stop.`
+      : `6. \`skills/\` is **read-only** and contains only these skill directories: ${installedSkills}.`;
+
+    const skillsRootBullet = this.allowedSkills.length === 0
+      ? `- **skills/** — Read-only, but empty for this run (no assigned skill is installed). Do not read from it.`
+      : `- **skills/** — Read-only skill instructions. Installed: ${installedSkills}.`;
 
     return `
 <filesystem_context>
 ## Virtual Filesystem
-You operate inside a per-run directory. The tree below is **exhaustive and complete** — it contains every file that exists. There are no hidden files, no other directories, and no external sources to check.
+You operate inside a per-run directory. The tree below is **complete as of this turn** — it lists every file that existed when this prompt was built. There are no hidden files, no other directories, and no external sources to check.
 
 **ABSOLUTE RULES — never violated under any circumstance:**
 1. A file not listed in the tree below **does not exist**. Do not reference it, guess its path, or attempt to access it.
@@ -647,7 +666,7 @@ You operate inside a per-run directory. The tree below is **exhaustive and compl
 3. Absolute paths (\`/etc\`, \`~\`, \`../\`) are rejected.
 4. \`workspace/\` is **read-only** input. Never write to it.
 5. \`artifacts/\` is your **write space**. All files you produce go here.
-6. \`skills/\` is **read-only** and contains only the skills assigned to you.
+${skillsRule}
 7. To look at an image that is NOT already in the conversation, use see_image. read_file cannot read images.
 8. Images the user attached to the conversation are already visible to you. Never call see_image on a file you have already been shown.
 
@@ -667,7 +686,8 @@ You operate inside a per-run directory. The tree below is **exhaustive and compl
 ## Roots
 - **workspace/** — User-provided input files. Read-only source of truth.
 - **artifacts/** — Your working output space. Write all produced files here.
-- **skills/** — Read-only skill instructions.
+${skillsRootBullet}
+- A repository or dataset you clone with execute_shell must land under \`artifacts/\` (e.g. \`git clone <url> artifacts/<name>\`). Anything created outside \`workspace/\`, \`artifacts/\` and \`skills/\` is invisible to read_file and does not appear in the tree below.
 - Images are attached to the conversation after a see_image call — the receipt you get back is metadata only, so do not try to read the pixels back out of it.
 - **If you can see an image — whether the user attached it or see_image delivered it — read it directly from your context. NEVER write OCR, extraction or image-processing code to read an image you have been given.** execute_shell and Python are for transforming files, not for "reading" them.
 

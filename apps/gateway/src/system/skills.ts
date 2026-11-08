@@ -83,9 +83,11 @@ export default class SkillsManager {
   async injectSkills(skillname: string[], systemprompt: string, vfs: VirtualFileSystem): Promise<string> {
     void vfs
     const validEntries: { skill: Skillneeded; skillDirVpath: string; skillEntryVpath: string }[] = []
+    const missing: string[] = []
     for (const name of skillname) {
       if (!this.availableSkills[name]) {
-        console.warn(`[injectSkills] Unknown skill: "${name}" — skipping.`)
+        console.warn(`[injectSkills] Assigned skill "${name}" is not installed under that name — skipping. Installed: ${Object.keys(this.availableSkills).sort().join(', ')}`)
+        missing.push(name)
         continue
       }
       const skill = this.availableSkills[name]
@@ -95,8 +97,6 @@ export default class SkillsManager {
       const skillEntryVpath = `${skillDirVpath}/SKILL.md`
       validEntries.push({ skill, skillDirVpath, skillEntryVpath })
     }
-    if (validEntries.length === 0) return systemprompt
-
     let skillsxml = `MANDATORY SKILL USAGE PROTOCOL
 
 You have access to specialized skills listed below. These are expert instruction sets for specific tasks that you do NOT have in your training data.
@@ -136,6 +136,17 @@ When a skill references relative paths (scripts/, references/, templates/), reso
 `
     }
     skillsxml += `</available_skills>`
-    return systemprompt + '\n\n' + skillsxml
+
+    const blocks: string[] = [systemprompt]
+    if (validEntries.length > 0) blocks.push(skillsxml)
+    if (missing.length > 0) {
+      const installedList = Object.keys(this.availableSkills).sort().join(', ') || "(none)"
+      blocks.push(`<skills_status>
+Assigned but NOT installed (access to these paths is denied — do not retry them): ${missing.join(", ")}
+Installed skills available on this instance: ${installedList}
+Do not retry read_file on a denied skill path. Report the missing skill name to the user instead of substituting your own procedure.
+</skills_status>`)
+    }
+    return blocks.join('\n\n')
   }
 }

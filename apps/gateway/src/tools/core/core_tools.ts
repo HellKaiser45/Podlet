@@ -1,3 +1,4 @@
+import { readdir } from 'node:fs/promises';
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
 import type { SeeImageReceipt } from '@podlet/types';
 import { VirtualFileSystem, resolveWithin } from '../../system/sandbox';
@@ -108,6 +109,20 @@ interface ShellExecutionResult {
   exitCode: number | null;
   timedOut: boolean;
   duration: number;
+  warning?: string;
+}
+
+// The run root's cwd holds exactly these children. Anything else that appears
+// there was created by a shell command and is invisible to every other tool.
+const VISIBLE_RUN_ROOT_ENTRIES = new Set(['workspace', 'artifacts', 'skills']);
+
+async function listRunRootEntries(runRoot: string): Promise<Set<string> | null> {
+  try {
+    const entries = await readdir(runRoot, { withFileTypes: true });
+    return new Set(entries.map(entry => entry.name));
+  } catch {
+    return null;
+  }
 }
 
 class ShellTool implements ITool {
@@ -127,6 +142,8 @@ class ShellTool implements ITool {
         '- All paths are relative to the run root and start with workspace/, artifacts/ or skills/',
         '- Absolute paths (/tmp, /etc, ~) are rejected',
         '- Shell output may leak real filesystem paths — always continue using relative paths in follow-up tool calls',
+        '- Only workspace/, artifacts/ and skills/ are visible to the other tools. A bare `git clone <url>` creates a directory in the run root that NO tool can read — clone into artifacts/ instead (e.g. `git clone <url> artifacts/<name>`, or pass working_directory: "artifacts").',
+        '- Anything created outside those three directories is invisible and does not appear in the file tree.',
         '',
         'NOT FOR: long-running servers, interactive commands (vim/ssh), watch modes, background processes.',
         'Timeout: default 30s, max 300s.',
@@ -170,6 +187,8 @@ class ShellTool implements ITool {
         ? resolveWithin(runRoot, working_directory)
         : runRoot;
 
+      const before = await listRunRootEntries(runRoot);
+
       const proc = Bun.spawn(['bash', '-c', command], {
         cwd,
         stdout: 'pipe',
@@ -192,11 +211,35 @@ class ShellTool implements ITool {
       clearTimeout(killTimer);
       const duration = Date.now() - startTime;
 
+      const after = await listRunRootEntries(runRoot);
+      const createdOutsideRoots = before !== null && after !== null
+        ? [...after].filter(name => !before.has(name) && !VISIBLE_RUN_ROOT_ENTRIES.has(name))
+        : [];
+      const warning = createdOutsideRoots.length > 0
+        ? `Files were created outside the visible roots: ${createdOutsideRoots.join(', ')}. Those paths are invisible to read_file/write_file/apply_diff and do not appear in the file tree. Anything you produce must live under artifacts/ — re-run with working_directory: "artifacts", or move the output there with the shell.`
+        : undefined;
+
       if (timedOut) {
-        return { success: false, stdout, stderr: stderr + `\n\n[Command timed out after ${timeout}s and was terminated]`, exitCode: null, timedOut: true, duration };
+        return {
+          success: false,
+          stdout,
+          stderr: stderr + `\n\n[Command timed out after ${timeout}s and was terminated]`,
+          exitCode: null,
+          timedOut: true,
+          duration,
+          ...(warning ? { warning } : {}),
+        };
       }
 
-      return { success: exitCode === 0, stdout, stderr, exitCode, timedOut: false, duration };
+      return {
+        success: exitCode === 0,
+        stdout,
+        stderr,
+        exitCode,
+        timedOut: false,
+        duration,
+        ...(warning ? { warning } : {}),
+      };
     } catch (error) {
       return {
         success: false, stdout: '',
