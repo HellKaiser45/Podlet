@@ -5,25 +5,6 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 // Public types
 // ---------------------------------------------------------------------------
 
-interface CropSpec {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  unit: "px" | "fraction";
-}
-
-interface PrepareOptions {
-  /** Longest edge of the returned image. Default 1568. Downscale only. */
-  maxEdge?: number;
-  /** Output format. Defaults to png for png/gif/webp sources, jpeg for jpeg sources. */
-  format?: "png" | "jpeg";
-  /** JPEG quality 0-100. Default 82. Ignored for png. */
-  quality?: number;
-  /** Crop region, applied BEFORE the resize. */
-  crop?: CropSpec;
-}
-
 export interface PreparedImage {
   ok: true;
   bytes: Uint8Array;
@@ -88,13 +69,6 @@ function estimateVisualTokens(width: number, height: number): number {
 // Internals
 // ---------------------------------------------------------------------------
 
-interface Region {
-  sx: number;
-  sy: number;
-  sw: number;
-  sh: number;
-}
-
 /**
  * @napi-rs/canvas `loadImage` does not reject on unrecognised bytes: it hangs
  * forever, which would leak a never-settling promise out of `prepareImage`.
@@ -124,38 +98,6 @@ function safeReason(cause: unknown, fallback: string): string {
   return cleaned ? `${fallback}: ${cleaned}`.slice(0, 200) : fallback;
 }
 
-/**
- * Resolve a CropSpec against the source dimensions and clamp it to the image.
- * Returns null when the region is empty or entirely outside the image.
- */
-function resolveCropRegion(
-  crop: CropSpec,
-  sourceWidth: number,
-  sourceHeight: number,
-): Region | null {
-  const scaleX = crop.unit === "fraction" ? sourceWidth : 1;
-  const scaleY = crop.unit === "fraction" ? sourceHeight : 1;
-
-  const left = crop.x * scaleX;
-  const top = crop.y * scaleY;
-  const width = crop.width * scaleX;
-  const height = crop.height * scaleY;
-
-  if (![left, top, width, height].every(Number.isFinite)) return null;
-  if (width <= 0 || height <= 0) return null;
-
-  const x0 = Math.max(0, Math.round(left));
-  const y0 = Math.max(0, Math.round(top));
-  const x1 = Math.min(sourceWidth, Math.round(left + width));
-  const y1 = Math.min(sourceHeight, Math.round(top + height));
-
-  const sw = x1 - x0;
-  const sh = y1 - y0;
-  if (sw < 1 || sh < 1) return null;
-
-  return { sx: x0, sy: y0, sw, sh };
-}
-
 function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -165,14 +107,10 @@ function sha256Hex(bytes: Uint8Array): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Decode, crop, downscale and re-encode an image. Pure: bytes in, bytes out —
- * no filesystem access. Never throws.
+ * Decode, downscale to a 1568px longest edge and re-encode an image. Pure:
+ * bytes in, bytes out — no filesystem access. Never throws.
  */
-export async function prepareImage(
-  input: Uint8Array,
-  mime: string,
-  opts: PrepareOptions = {},
-): Promise<PrepareResult> {
+export async function prepareImage(input: Uint8Array, mime: string): Promise<PrepareResult> {
   try {
     let sourceMime = normaliseMime(mime);
     if (!SUPPORTED_SOURCE_MIMES.has(sourceMime)) {
@@ -200,17 +138,6 @@ export async function prepareImage(
     // The bytes are authoritative; the declared MIME only gated decodability.
     sourceMime = sniffedMime;
 
-    const requestedEdge = opts.maxEdge ?? DEFAULT_MAX_EDGE;
-    const maxEdge =
-      Number.isFinite(requestedEdge) && requestedEdge >= 1
-        ? Math.floor(requestedEdge)
-        : DEFAULT_MAX_EDGE;
-
-    const requestedQuality = opts.quality ?? DEFAULT_JPEG_QUALITY;
-    const quality = Number.isFinite(requestedQuality)
-      ? Math.min(100, Math.max(1, Math.round(requestedQuality)))
-      : DEFAULT_JPEG_QUALITY;
-
     const image = await loadImage(Buffer.from(input.buffer, input.byteOffset, input.byteLength));
     const sourceWidth = Number(image.width);
     const sourceHeight = Number(image.height);
@@ -218,41 +145,24 @@ export async function prepareImage(
       return { ok: false, reason: "decoded image has zero width or height" };
     }
 
-    // --- crop (before resize) ---------------------------------------------
-    let region: Region = { sx: 0, sy: 0, sw: sourceWidth, sh: sourceHeight };
-    if (opts.crop) {
-      const crop = opts.crop;
-      if (crop.unit !== "px" && crop.unit !== "fraction") {
-        return { ok: false, reason: `invalid crop unit "${String(crop.unit)}"` };
-      }
-      const resolved = resolveCropRegion(crop, sourceWidth, sourceHeight);
-      if (!resolved) {
-        return { ok: false, reason: "crop region is empty or outside image bounds" };
-      }
-      region = resolved;
-    }
-
     // --- resize (downscale only) ------------------------------------------
-    let outWidth = region.sw;
-    let outHeight = region.sh;
-    const longestEdge = Math.max(region.sw, region.sh);
-    if (longestEdge > maxEdge) {
-      const scale = maxEdge / longestEdge;
-      outWidth = Math.max(1, Math.round(region.sw * scale));
-      outHeight = Math.max(1, Math.round(region.sh * scale));
+    let outWidth = sourceWidth;
+    let outHeight = sourceHeight;
+    const longestEdge = Math.max(sourceWidth, sourceHeight);
+    if (longestEdge > DEFAULT_MAX_EDGE) {
+      const scale = DEFAULT_MAX_EDGE / longestEdge;
+      outWidth = Math.max(1, Math.round(sourceWidth * scale));
+      outHeight = Math.max(1, Math.round(sourceHeight * scale));
     }
 
     // --- target format -----------------------------------------------------
-    const requestedFormat =
-      opts.format ?? (sourceMime === "image/jpeg" ? "jpeg" : "png");
     const targetMime: PreparedImage["mime"] =
-      requestedFormat === "jpeg" ? "image/jpeg" : "image/png";
+      sourceMime === "image/jpeg" ? "image/jpeg" : "image/png";
 
-    // Nothing to do at all: no crop, no downscale, and the source is already
-    // a format we can forward (png/jpeg). Hand back the untouched bytes.
-    const isCropped = region.sw !== sourceWidth || region.sh !== sourceHeight;
-    const isResized = outWidth !== region.sw || outHeight !== region.sh;
-    if (!isCropped && !isResized && targetMime === sourceMime) {
+    // Nothing to do at all: no downscale, and the source is already a format
+    // we can forward (png/jpeg). Hand back the untouched bytes.
+    const isResized = outWidth !== sourceWidth || outHeight !== sourceHeight;
+    if (!isResized && targetMime === sourceMime) {
       const bytes = new Uint8Array(input);
       return {
         ok: true,
@@ -280,10 +190,10 @@ export async function prepareImage(
       }
       ctx.drawImage(
         image,
-        region.sx,
-        region.sy,
-        region.sw,
-        region.sh,
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
         0,
         0,
         outWidth,
@@ -291,7 +201,7 @@ export async function prepareImage(
       );
       const buffer =
         targetMime === "image/jpeg"
-          ? canvas.toBuffer("image/jpeg", quality)
+          ? canvas.toBuffer("image/jpeg", DEFAULT_JPEG_QUALITY)
           : canvas.toBuffer("image/png");
       bytes = new Uint8Array(buffer);
     } finally {

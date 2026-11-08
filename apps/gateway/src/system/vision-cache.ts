@@ -2,15 +2,15 @@
 // Vision image cache
 // ---------------------------------------------------------------------------
 //
-// Preparing an image is expensive: it decodes, crops, rescales and re-encodes
+// Preparing an image is expensive: it decodes, rescales and re-encodes
 // with @napi-rs/canvas. `hydrateVisionHistory` needs the same prepared bytes on
 // every turn, so without a cache the same source file is decoded and encoded
 // again for the lifetime of the conversation. This keeps the finished,
 // base64-ready result in memory instead.
 //
 // The key is the sha256 of the *prepared* bytes, which `prepareImage` already
-// returns. Different crops or detail levels of one source therefore hash
-// differently and never collide, so no composite keys are needed.
+// returns. The same source therefore hashes to the same key every time, so
+// no composite keys are needed.
 //
 // Bounded by both an entry count and a byte budget. Map preserves insertion
 // order, so the first key is the oldest; `get` re-inserts to mark it recent.

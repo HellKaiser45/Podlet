@@ -190,10 +190,7 @@ export async function hydrateVisionHistory(
         continue;
       }
 
-      const prepared = await prepareImage(bytes, receipt.source.mime, {
-        maxEdge: receipt.rendered.max_edge,
-        crop: receipt.rendered.crop ?? undefined,
-      });
+      const prepared = await prepareImage(bytes, receipt.source.mime);
 
       if ('ok' in prepared && prepared.ok === false) {
         lines.push(`${vpath}: could not be re-read (${prepared.reason})`);

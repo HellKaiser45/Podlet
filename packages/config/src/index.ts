@@ -24,7 +24,6 @@ async function loadConfig(): Promise<AppConfig> {
   const safemode = configFile.features?.safemode ?? false;
   const vision = {
     enabled: configFile.features?.vision?.enabled ?? true,
-    max_edge: configFile.features?.vision?.max_edge ?? 1568,
     max_images_per_call: configFile.features?.vision?.max_images_per_call ?? 4,
   };
   const dbPath = join(podletDir, dbName);

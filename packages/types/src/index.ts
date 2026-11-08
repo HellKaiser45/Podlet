@@ -25,7 +25,6 @@ export interface ConfigFile {
     safemode?: boolean;
     vision?: {
       enabled?: boolean;
-      max_edge?: number;
       max_images_per_call?: number;
     };
   };
@@ -33,7 +32,6 @@ export interface ConfigFile {
 
 interface VisionSettings {
   enabled: boolean;
-  max_edge: number;
   max_images_per_call: number;
 }
 
@@ -42,14 +40,6 @@ interface VisionSettings {
  * produces the receipt and the hydration pass that consumes it agree on the
  * shape without duplicating it.
  */
-interface SeeImageReceiptCrop {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  unit: 'px' | 'fraction';
-}
-
 export interface SeeImageReceipt {
   vpath: string;
   id: string;
@@ -66,9 +56,7 @@ export interface SeeImageReceipt {
     width: number;
     height: number;
     bytes: number;
-    max_edge: number;
     format: 'png' | 'jpeg';
-    crop: SeeImageReceiptCrop | null;
   };
   tokens_est: number;
   dropped_from_context: boolean;
