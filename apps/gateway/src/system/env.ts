@@ -15,7 +15,7 @@ const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** `key -> value we wrote`, so a later reload only touches values we own. */
 const written = new Map<string, string>()
 
-export function parseEnvFile(text: string): { values: Record<string, string>; warnings: string[] } {
+function parseEnvFile(text: string): { values: Record<string, string>; warnings: string[] } {
   const values: Record<string, string> = {}
   const warnings: string[] = []
   const lines = text.split('\n')
@@ -147,9 +147,4 @@ export async function applyEnvFile(
   }
 
   return { path, loaded, warnings }
-}
-
-/** Drops the ownership bookkeeping a previous apply left behind. */
-export function resetEnvLoaderForTests(): void {
-  written.clear()
 }

@@ -400,7 +400,7 @@ function toolArgumentsDeltaChunk(index: number, deltaText: string): LiteLLMStrea
  * Shared by the terminal chunk and the usage record so the two can never
  * disagree about what the call actually ended with.
  */
-export function mapFinishReason(reason: FinishReason): string {
+function mapFinishReason(reason: FinishReason): string {
   switch (reason) {
     case 'tool-calls':
       return 'tool_calls';

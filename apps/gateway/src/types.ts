@@ -9,7 +9,7 @@ import type {
   ChatCompletionUserMessageParam
 } from "@podlet/types";
 
-import type { RunFinishedEvent as AGUIRunFinishedEvent, AGUIEvent } from "@ag-ui/core";
+import type { AGUIEvent } from "@ag-ui/core";
 type WithAgentId<T> = T & { AgentId: string };
 
 //=========================================================
@@ -72,7 +72,7 @@ export interface MCPInstance {
 }
 
 //===========================================================
-export type ReasoningEffort = "low" | "medium" | "high" | "none";
+type ReasoningEffort = "low" | "medium" | "high" | "none";
 
 //=======================================================================================
 // API Input types
@@ -101,13 +101,9 @@ export interface RunAgentInput {
 // Events modified types
 // ===================================================================================
 
-export type RunFinishedEvent = AGUIRunFinishedEvent & {
-  result: AgentStackFrame
-}
-
 export type CustomBaseEvent = WithAgentId<AGUIEvent>;
 
-export interface HeartbeatEvent {
+interface HeartbeatEvent {
   type: "heartbeat";
   timestamp: string;
 }
@@ -209,13 +205,6 @@ export interface Agent {
 
 export type AgentThinking = "low" | "medium" | "high" | "none";
 
-export const AGENT_THINKING_LEVELS: AgentThinking[] = ["none", "low", "medium", "high"];
-
-export const DEFAULT_AGENT_THINKING: AgentThinking = "none";
-
-/** Response-only sidecar; never written into the agent JSON. */
-export type AgentWithHealth = Agent & { health: Health };
-
 //===================================================================================
 // File system related types
 // ==================================================================================
@@ -232,7 +221,7 @@ export interface LiteLLMStreamedChunk extends Omit<ChatCompletionChunk, "choices
   choices: LiteLLMChoice[];
 }
 
-export interface LiteLLMChoice extends Omit<ChatCompletionChunk.Choice, "delta"> {
+interface LiteLLMChoice extends Omit<ChatCompletionChunk.Choice, "delta"> {
   delta: LiteLLMDelta;
 }
 
@@ -254,7 +243,7 @@ export type ThinkingAnthropic =
 //======================================================================
 //HIL Approval related stuff
 //======================================================================
-export interface ApprovalStatus {
+interface ApprovalStatus {
   approval: "approved" | "rejected" | "pending";
   feedback?: string;
 }

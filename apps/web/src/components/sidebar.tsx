@@ -4,7 +4,7 @@ import uuidv4 from "../utils/uuid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
-export const getRunIds = query(async () => {
+const getRunIds = query(async () => {
   const { data, error } = await api.runids.get();
   if (error) throw error;
   return data;

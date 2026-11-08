@@ -5,7 +5,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 // Public types
 // ---------------------------------------------------------------------------
 
-export interface CropSpec {
+interface CropSpec {
   x: number;
   y: number;
   width: number;
@@ -13,7 +13,7 @@ export interface CropSpec {
   unit: "px" | "fraction";
 }
 
-export interface PrepareOptions {
+interface PrepareOptions {
   /** Longest edge of the returned image. Default 1568. Downscale only. */
   maxEdge?: number;
   /** Output format. Defaults to png for png/gif/webp sources, jpeg for jpeg sources. */
@@ -37,7 +37,7 @@ export interface PreparedImage {
   tokensEst: number;
 }
 
-export type PrepareResult = PreparedImage | { ok: false; reason: string };
+type PrepareResult = PreparedImage | { ok: false; reason: string };
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -47,7 +47,7 @@ const DEFAULT_MAX_EDGE = 1568;
 const DEFAULT_JPEG_QUALITY = 82;
 
 /** Source formats this module can decode. Anything else is rejected up front. */
-export const SUPPORTED_SOURCE_MIMES: ReadonlySet<string> = new Set([
+const SUPPORTED_SOURCE_MIMES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
@@ -77,7 +77,7 @@ export function normaliseMime(mime: string): string {
  * 28x28 patch grid and is an estimate (+/-15%), used only for display and
  * budgeting — never for billing or hard limits.
  */
-export function estimateVisualTokens(width: number, height: number): number {
+function estimateVisualTokens(width: number, height: number): number {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return 0;
   }

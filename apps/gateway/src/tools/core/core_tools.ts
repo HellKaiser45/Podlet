@@ -19,11 +19,6 @@ const BINARY_EXTENSIONS = new Set([
   '.mp4', '.mp3', '.wav', '.ogg', '.zip', '.tar', '.gz', '.bin', '.exe',
 ]);
 
-// Image extensions readable by the vision pipeline (see_image)
-const IMAGE_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
-]);
-
 // Extensions actually decoded by see_image
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -106,7 +101,7 @@ class ReadFileTool implements ITool {
 // ShellTool
 // ---------------------------------------------------------------------------
 
-export interface ShellExecutionResult {
+interface ShellExecutionResult {
   success: boolean;
   stdout: string;
   stderr: string;

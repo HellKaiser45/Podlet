@@ -11,7 +11,7 @@ import type { LiteLLMMessage } from '../types';
  * Non-JSON values are stringified the way Python's `default=str` would: the
  * value is coerced rather than dropped, so the hash stays total.
  */
-export function stableStringify(value: unknown): string {
+function stableStringify(value: unknown): string {
   return stringifySorted(value, new Set());
 }
 
@@ -86,7 +86,7 @@ function sha256Hex32(value: string): string {
 }
 
 /** The `x-opencode-session` value: `ses_` plus the derived conversation id. */
-export function opencodeSessionId(conversationId: string): string {
+function opencodeSessionId(conversationId: string): string {
   return `ses_${conversationId}`;
 }
 

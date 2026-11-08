@@ -22,13 +22,13 @@ export interface ModelConfig {
   apiKeyEnvVar: string;
 }
 
-export interface MCPServerConfig {
+interface MCPServerConfig {
   command: string;
   args: string[];
   env: Record<string, string>;
 }
 
-export interface SkillInfo {
+interface SkillInfo {
   name: string;
   description: string;
 }

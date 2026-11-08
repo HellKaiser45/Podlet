@@ -33,9 +33,7 @@ const DOCUMENT_EXTENSIONS = new Set([
 
 type VirtualRootName = "workspace" | "artifacts" | "skills";
 
-export const VIRTUAL_ROOTS: readonly VirtualRootName[] = ["workspace", "artifacts", "skills"];
-
-export class PathEscape extends Error {
+class PathEscape extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PathEscape";
@@ -107,7 +105,7 @@ export function resolveWithin(root: string, rel: string): string {
   return realFull;
 }
 
-export interface VirtualContext {
+interface VirtualContext {
   /** The Podlet data directory (parent of workspace/, runs/, skills/). */
   podletDir: string;
   runId: string;
@@ -121,7 +119,7 @@ function runRootPath(podletDir: string, runId: string): string {
 }
 
 /** The real directory backing a virtual root name. */
-export function rootFor(name: VirtualRootName, ctx: VirtualContext): string {
+function rootFor(name: VirtualRootName, ctx: VirtualContext): string {
   switch (name) {
     case "workspace":
       return join(runRootPath(ctx.podletDir, ctx.runId), "workspace");

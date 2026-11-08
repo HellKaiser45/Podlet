@@ -22,7 +22,7 @@ import type { LiteLLMMessage, ProviderQuirks } from '../types';
  * :1585 pushes an `unsupported` warning past it). We place two: one on the
  * stable system prompt and one on the last message.
  */
-export const MAX_CACHE_BREAKPOINTS = 4;
+const MAX_CACHE_BREAKPOINTS = 4;
 
 /** The providerOptions value Anthropic reads as a breakpoint on a message part. */
 const CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
@@ -130,7 +130,7 @@ function addBreakpointToLastMessage(messages: ModelMessage[]): ModelMessage[] {
 }
 
 /** Count every breakpoint in the payload and refuse to exceed Anthropic's limit. */
-export function countCacheBreakpoints(messages: ModelMessage[]): number {
+function countCacheBreakpoints(messages: ModelMessage[]): number {
   let count = 0;
   for (const message of messages) {
     const providerOptions = (message as { providerOptions?: Record<string, unknown> }).providerOptions;

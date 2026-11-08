@@ -18,7 +18,7 @@ const REASONING_KEYS = ["reasoning_content", "thinking_blocks"] as const;
  * removed. Never mutates its argument: the frame history the loop still reads
  * is left untouched.
  */
-export function stripReasoning(message: LiteLLMMessage): LiteLLMMessage {
+function stripReasoning(message: LiteLLMMessage): LiteLLMMessage {
   const copy: Record<string, unknown> = { ...(message as unknown as Record<string, unknown>) };
   for (const key of REASONING_KEYS) {
     delete copy[key];
@@ -32,7 +32,7 @@ export function stripReasoning(message: LiteLLMMessage): LiteLLMMessage {
  * messages and nothing else touched. Applied to the run_history row and to the
  * `RUN_FINISHED` payload; never to `frames.history` (H4).
  */
-export function projectHistoryForPersistence(history: LiteLLMMessage[]): LiteLLMMessage[] {
+function projectHistoryForPersistence(history: LiteLLMMessage[]): LiteLLMMessage[] {
   return history
     .filter(m => {
       if (m.role === 'user') return true

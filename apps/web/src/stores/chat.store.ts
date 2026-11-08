@@ -43,7 +43,7 @@ export interface Conversation {
   pendingApprovals: PendingApproval[];
 }
 
-export interface ChatState {
+interface ChatState {
   status: 'idle' | 'running' | 'loading' | 'awaiting_approval';
   messages: ChatCompletionMessageParam[];
   tools: ToolCall[];
@@ -107,11 +107,11 @@ export function clearConversation() {
 }
 
 // ─── Message Operations ──────────────────────────────────────────────────────
-export function addMessage(message: ChatCompletionMessageParam) {
+function addMessage(message: ChatCompletionMessageParam) {
   setState('messages', msgs => [...msgs, message]);
 }
 
-export function updateLastMessageContent(chunk: string) {
+function updateLastMessageContent(chunk: string) {
   setState(produce(conv => {
     const lastIdx = conv.messages.length - 1;
     if (lastIdx >= 0) {

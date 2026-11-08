@@ -2,12 +2,6 @@ import { Elysia, t } from 'elysia';
 import AppContainer from '../runtime';
 import type { ModelConfig } from '../types';
 
-const ProtocolSchema = t.Optional(t.Union([
-  t.Literal('openai'),
-  t.Literal('anthropic'),
-  t.Literal('google'),
-]));
-
 // Every quirk must be declared: Elysia would otherwise strip it before the
 // handler ever sees it, making the opt-in unreachable.
 const QuirksSchema = t.Optional(t.Object({

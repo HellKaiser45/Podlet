@@ -15,7 +15,7 @@ import { VirtualFileSystem } from './system/sandbox';
 
 
 
-export function chatRoutes(container: AppContainer) {
+function chatRoutes(container: AppContainer) {
   return new Elysia()
     .post('/chat', async function* ({ body, set, request }) {
       const input = {

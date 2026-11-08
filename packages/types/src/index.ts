@@ -31,7 +31,7 @@ export interface ConfigFile {
   };
 }
 
-export interface VisionSettings {
+interface VisionSettings {
   enabled: boolean;
   max_edge: number;
   max_images_per_call: number;
@@ -42,7 +42,7 @@ export interface VisionSettings {
  * produces the receipt and the hydration pass that consumes it agree on the
  * shape without duplicating it.
  */
-export interface SeeImageReceiptCrop {
+interface SeeImageReceiptCrop {
   x: number;
   y: number;
   width: number;

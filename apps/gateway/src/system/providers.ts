@@ -113,20 +113,18 @@ export const PROVIDER_TABLE: Record<string, ProviderRow> = {
  * canonical endpoint? A miss means "a base_url is required", which is an error —
  * never a substituted endpoint.
  */
-export const CANONICAL_FOR: Record<Protocol, string[]> = {
+const CANONICAL_FOR: Record<Protocol, string[]> = {
   openai: ["openai"],
   anthropic: ["anthropic"],
   google: ["google", "gemini"],
 };
 
 /** Default key variable per protocol; used only when nothing named one earlier. */
-export const KEY_ENV_BY_PROTOCOL: Record<Protocol, string> = {
+const KEY_ENV_BY_PROTOCOL: Record<Protocol, string> = {
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
 };
-
-export const PROTOCOLS: Protocol[] = ["openai", "anthropic", "google"];
 
 type KeySource = "api_key_name" | "provider" | "protocol";
 

@@ -4,7 +4,7 @@ import type { UsageRecord } from '../llm/usage';
 import { createDB } from './db';
 
 /** Every metric for one group of calls. Abbreviated to `calls` for the row count. */
-export type TokenSums = {
+type TokenSums = {
   input: number;
   output: number;
   total: number;
@@ -16,7 +16,7 @@ export type TokenSums = {
   calls: number;
 };
 
-export type UsageTotals = {
+type UsageTotals = {
   run: TokenSums;
   byFrame: Array<TokenSums & {
     frameId: string;

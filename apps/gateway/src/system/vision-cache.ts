@@ -15,7 +15,7 @@
 // Bounded by both an entry count and a byte budget. Map preserves insertion
 // order, so the first key is the oldest; `get` re-inserts to mark it recent.
 
-export interface CachedImage {
+interface CachedImage {
   b64: string; // base64 of prepared bytes, ready for a data: URL
   mime: string; // prepared mime, e.g. 'image/png'
   width: number;
@@ -23,15 +23,15 @@ export interface CachedImage {
   bytes: number; // prepared byte length (not base64 length)
 }
 
-export interface VisionCacheStats {
+interface VisionCacheStats {
   hits: number;
   misses: number;
   entries: number;
   bytes: number;
 }
 
-export const MAX_BYTES = 128 * 1024 * 1024;
-export const MAX_ENTRIES = 64;
+const MAX_BYTES = 128 * 1024 * 1024;
+const MAX_ENTRIES = 64;
 
 class VisionCache {
   private readonly entries = new Map<string, CachedImage>();

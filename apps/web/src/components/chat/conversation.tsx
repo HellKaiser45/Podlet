@@ -16,7 +16,7 @@ export default function Conversation(props: { messages: ChatCompletionMessagePar
   );
 }
 
-export function SubagentBlocks() {
+function SubagentBlocks() {
   const subagentIds = () => Object.keys(state.subagents);
 
   return (
