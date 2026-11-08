@@ -19,6 +19,7 @@ import { UsageCRUDClient } from "./db/db_usage_client";
 import type { UsageRecord } from "./llm/usage";
 import PromptsManager from "./system/prompts";
 import { applyEnvFile } from "./system/env";
+import { makeTreeRemovable } from "./system/sandbox";
 
 export default class AppContainer {
   frameCRUD: FrameCRUDClient;
@@ -115,6 +116,9 @@ export default class AppContainer {
 
         console.log(`[GC] Removing orphaned ${schemeDir}/ directory with no chat history: ${entry.name}`);
         try {
+          // A run's workspace/ is chmodded read-only, which blocks unlinking
+          // its entries; restore owner-write first or rm fails with EACCES.
+          await makeTreeRemovable(join(dirPath, entry.name));
           await rm(join(dirPath, entry.name), { recursive: true, force: true });
         } catch (err) {
           console.error(`[GC] Failed to remove orphaned ${schemeDir}/${entry.name}:`, err);

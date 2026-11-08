@@ -37,6 +37,7 @@ interface FileContent {
   isImage: boolean;
   isPdf: boolean;
   content: string;
+  error?: string;
 }
 
 const getItemContent = query(async (itemId?: string, runIdValue?: string, fileName?: string): Promise<FileContent | undefined> => {
@@ -47,15 +48,26 @@ const getItemContent = query(async (itemId?: string, runIdValue?: string, fileNa
     return { itemId, runId: runIdValue, isImage: false, isPdf: true, content: '' };
   }
 
-  const res = await api.file.download({ runid: runIdValue })({ fileid: itemId }).get();
+  const res = await api.file.download({ runid: runIdValue })({ fileid: encodeURIComponent(itemId) }).get();
+  if (res.error || res.data == null) {
+    return {
+      itemId,
+      runId: runIdValue,
+      isImage: false,
+      isPdf: false,
+      content: '',
+      error: `Could not load "${fileName ?? itemId}". The file may not exist, or the download request failed.`,
+    };
+  }
   const mime = res.response.headers.get('Content-Type') || '';
   const isImage = mime.startsWith('image/');
+  const data = res.data;
   return {
     itemId,
     runId: runIdValue,
     isImage,
     isPdf: mime.includes('application/pdf'),
-    content: isImage || mime.includes('application/pdf') ? '' : String(res.data),
+    content: isImage || mime.includes('application/pdf') ? '' : String(data),
   };
 }, 'content');
 
@@ -206,7 +218,7 @@ export default function SideDrawer() {
     if (!c || !runId()) return;
     setIsSaving(true);
     try {
-      await api.file({ runid: runId()! })({ fileid: c.itemId }).patch(editContent());
+      await api.file({ runid: runId()! })({ fileid: encodeURIComponent(c.itemId) }).patch(editContent());
       await revalidate('content');
       setIsEditing(false);
     } finally {
@@ -219,7 +231,7 @@ export default function SideDrawer() {
     if (!c || !runId()) return;
     setIsDeleting(true);
     try {
-      await api.file({ runid: runId()! })({ fileid: c.itemId }).delete();
+      await api.file({ runid: runId()! })({ fileid: encodeURIComponent(c.itemId) }).delete();
       setSelectedFile(null);
       await revalidate('invoice');
       await revalidate('content');
@@ -241,8 +253,7 @@ export default function SideDrawer() {
 
   const handleDownloadFolder = async (folder: { fullPath: string; name: string }) => {
     if (!runId()) return;
-    const scheme = activeMenu() === 'workspace' ? 'workspace://' : 'artifacts://';
-    const folderId = btoa(scheme + folder.fullPath).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const folderId = `${activeMenu()}/${folder.fullPath}`;
     try {
       await downloadFolder(runId()!, folderId, folder.name);
     } catch (e) {
@@ -373,6 +384,8 @@ export default function SideDrawer() {
                 >
                   {(c) => (
                     <Show
+                      when={c.error}
+                      fallback={<Show
                       when={c.isPdf}
                       fallback={
                     <Show
@@ -393,15 +406,21 @@ export default function SideDrawer() {
                         </Show>
                       }
                     >
-                      <ImagePreview src={`${BASE_URL}/api/file/download/${c.runId}/${c.itemId}`} />
+                      <ImagePreview src={`${BASE_URL}/api/file/download/${c.runId}/${encodeURIComponent(c.itemId)}`} />
                     </Show>
                       }
                     >
                       <iframe
                         title={`PDF preview: ${selectedFile()?.name ?? "PDF"}`}
-                        src={`${BASE_URL}/api/file/download/${c.runId}/${c.itemId}`}
+                        src={`${BASE_URL}/api/file/download/${c.runId}/${encodeURIComponent(c.itemId)}`}
                         class="w-full h-full rounded-lg border border-base-300 bg-base-100"
                       />
+                    </Show>}
+                    >
+                      <div class="flex flex-col items-center justify-center h-full gap-2 rounded-lg border border-error/40 bg-error/5 px-4 text-center">
+                        <span class="text-xs font-mono tracking-widest text-error/70">PREVIEW UNAVAILABLE</span>
+                        <span class="text-xs text-base-content/60">{c.error}</span>
+                      </div>
                     </Show>
                   )}
                 </Show>

@@ -237,6 +237,34 @@ export async function ensureRunRoot(
   return runRoot;
 }
 
+/**
+ * Best-effort writability pre-pass for a deletion.
+ *
+ * `ensureRunRoot()` and `upload()` lock the per-run `workspace/` tree down to
+ * 0o555 (dirs) / 0o444 (files). On POSIX a directory without write permission
+ * cannot have entries unlinked from it, so `rm(..., { recursive: true })` fails
+ * with EACCES and `force: true` does not help (it only swallows ENOENT).
+ * Restoring owner-write on every directory lets the removal proceed.
+ *
+ * Never throws: a missing path, an unsupported filesystem or a single
+ * permission error is not a reason to abort a cleanup.
+ */
+export async function makeTreeRemovable(dirPath: string): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dirPath, { recursive: true, withFileTypes: true });
+  } catch {
+    return; // path absent or unreadable -- nothing to prepare
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      await chmod(join(entry.parentPath, entry.name), 0o755);
+    } catch { /* best effort */ }
+  }
+}
+
 export class VirtualFileSystem {
   private readonly rootDir: string;
   private readonly runId: string;
@@ -859,8 +887,11 @@ ${tree}
   // ---------------------------------------------------------------------------
 
   async deleteFolder(runid: string) {
+    // workspace/ is chmodded read-only, which blocks unlinking its entries.
+    await makeTreeRemovable(runRootPath(this.rootDir, runid));
     await rm(runRootPath(this.rootDir, runid), { recursive: true, force: true });
     // Legacy layout from before the run-root refactor.
+    await makeTreeRemovable(join(this.rootDir, "artifacts", runid));
     await rm(join(this.rootDir, "artifacts", runid), { recursive: true, force: true });
   }
 
