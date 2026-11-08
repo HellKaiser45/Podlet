@@ -31,7 +31,7 @@ const DOCUMENT_EXTENSIONS = new Set([
 // path language: tools, the shell (whose cwd is the run root) and the frontend
 // all speak this one form.
 
-export type VirtualRootName = "workspace" | "artifacts" | "skills";
+type VirtualRootName = "workspace" | "artifacts" | "skills";
 
 export const VIRTUAL_ROOTS: readonly VirtualRootName[] = ["workspace", "artifacts", "skills"];
 
@@ -116,7 +116,7 @@ export interface VirtualContext {
 }
 
 /** `<podletDir>/runs/<runId>` — the shell cwd and the stable pwd. */
-export function runRootPath(podletDir: string, runId: string): string {
+function runRootPath(podletDir: string, runId: string): string {
   return join(podletDir, "runs", runId);
 }
 
@@ -133,7 +133,7 @@ export function rootFor(name: VirtualRootName, ctx: VirtualContext): string {
 }
 
 /** Split `<root>/<rest>` and return both halves, validating the root name. */
-export function splitVirtual(rel: string): { root: VirtualRootName; rest: string } {
+function splitVirtual(rel: string): { root: VirtualRootName; rest: string } {
   if (typeof rel !== "string" || rel.trim() === "") {
     throw new PathEscape("Empty path");
   }

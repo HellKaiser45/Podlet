@@ -18,7 +18,7 @@ import type {
  * pointed at the anthropic protocol would send an AWS credential to
  * api.anthropic.com.
  */
-export type ProviderRow = {
+type ProviderRow = {
   protocol: Protocol;
   /** Default endpoint; an entry-level `base_url` always wins. */
   base_url?: string;
@@ -34,7 +34,7 @@ export type ProviderRow = {
  * it for opencode; the owner now wants it universally, so it is merged into the
  * resolved headers rather than repeated on each of the twelve rows.
  */
-export const DEFAULT_HEADERS: Record<string, string> = { 'User-Agent': 'Podlet/1.0' };
+const DEFAULT_HEADERS: Record<string, string> = { 'User-Agent': 'Podlet/1.0' };
 
 export const PROVIDER_TABLE: Record<string, ProviderRow> = {
   openai: {
@@ -128,7 +128,7 @@ export const KEY_ENV_BY_PROTOCOL: Record<Protocol, string> = {
 
 export const PROTOCOLS: Protocol[] = ["openai", "anthropic", "google"];
 
-export type KeySource = "api_key_name" | "provider" | "protocol";
+type KeySource = "api_key_name" | "provider" | "protocol";
 
 export type ResolvedModel = {
   health: Health;

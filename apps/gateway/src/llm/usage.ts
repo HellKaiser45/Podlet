@@ -5,7 +5,7 @@ import type { LanguageModelUsage } from 'ai';
  * with the number of tool-loop iterations, so an unbounded column is a
  * long-run storage risk. The stored value must always remain valid JSON.
  */
-export const RAW_USAGE_MAX_LENGTH = 65536;
+const RAW_USAGE_MAX_LENGTH = 65536;
 
 /**
  * Flattened usage for the roadmap P1 usage-accounting item. Field values are
@@ -79,7 +79,7 @@ export function normalizeUsage(usage: LanguageModelUsage | undefined): Normalize
 }
 
 /** How one LLM call terminated. */
-export type LlmOutcome = 'finish' | 'error' | 'incomplete';
+type LlmOutcome = 'finish' | 'error' | 'incomplete';
 
 /**
  * What the adapter knows about one call: it has no `agentId`, `protocol` or

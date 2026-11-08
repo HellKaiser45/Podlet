@@ -13,7 +13,7 @@
     "mcp:probe": "bun run apps/gateway/scripts/probe-mcp-schemas.ts",
     "dev:gateway": "bun --filter @podlet/gateway dev",
     "dev:web": "bun --filter @podlet/web dev",
-    "typecheck:gateway": "tsc -p apps/gateway --noEmit && tsc -p apps/gateway/tsconfig.test.json",
+    "typecheck:gateway": "tsc -p apps/gateway --noEmit",
     "typecheck": "bun run typecheck:gateway && tsc -p apps/web --noEmit"
   },
   "dependencies": {

@@ -9,7 +9,7 @@ import type { Protocol } from '../types';
  * diagnostic can name the offending TOOL instead of leaving the user with a
  * provider warning that only names the model.
  */
-export type UnenforceableKeyword = {
+type UnenforceableKeyword = {
   keyword: string;
   protocols: Protocol[];
 };
@@ -31,7 +31,7 @@ export const UNENFORCEABLE_KEYWORDS: UnenforceableKeyword[] = [
 ];
 
 /** One occurrence of an unenforceable keyword, attributed to the tool carrying it. */
-export type SchemaOccurrence = {
+type SchemaOccurrence = {
   toolName: string;
   keyword: string;
   /** JSON path inside the tool's `parameters`, e.g. `properties.env.propertyNames`. */

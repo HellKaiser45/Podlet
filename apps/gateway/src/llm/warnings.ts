@@ -4,7 +4,7 @@ import type { CallWarning } from 'ai';
  * A warning as we log it: the provider's own `type` plus the capability it
  * names, flattened from whichever `CallWarning` variant arrived.
  */
-export type DescribedWarning = { type: string; feature: string; details?: string };
+type DescribedWarning = { type: string; feature: string; details?: string };
 
 export function describeWarning(warning: CallWarning): DescribedWarning {
   if ('feature' in warning) {
@@ -42,9 +42,9 @@ export function namesRequestedCapability(warning: DescribedWarning): boolean {
   return REQUESTED_CAPABILITIES.some((capability) => feature.includes(capability));
 }
 
-export type WarningSink = (line: string) => void;
+type WarningSink = (line: string) => void;
 
-export type WarningLogger = {
+type WarningLogger = {
   /** Log at most one line per unique (scope, type, feature, details) key. */
   log(warning: DescribedWarning, scope?: string): void;
   /**

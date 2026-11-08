@@ -34,7 +34,7 @@ const CACHE_CONTROL = { anthropic: { cacheControl: { type: 'ephemeral' as const 
  * `volatile` is the virtual file-system context tree, which changes each turn —
  * putting it inside the cached span would invalidate the cache every time.
  */
-export type SystemPromptParts = { stable: string; volatile: string };
+type SystemPromptParts = { stable: string; volatile: string };
 
 /**
  * Build the entries sent as `messages` for an anthropic request, with cache

@@ -27,7 +27,7 @@ import { createWarningLogger, describeWarning, namesRequestedCapability } from '
 
 const warningLogger = createWarningLogger();
 
-export type RunLlmStreamOptions = {
+type RunLlmStreamOptions = {
   model: LanguageModel;
   /** Sent via streamText's `system` option. Omitted when the caller has already
    *  put the system prompt into `messages` (needed for Anthropic cache breaks). */
