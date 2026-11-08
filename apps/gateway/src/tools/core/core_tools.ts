@@ -1,9 +1,11 @@
-import { readdir } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { ChatCompletionTool, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions';
 import type { SeeImageReceipt } from '@podlet/types';
 import { VirtualFileSystem, resolveWithin } from '../../system/sandbox';
 import { prepareImage, normaliseMime, type PreparedImage } from '../../system/vision';
 import { visionCache } from '../../system/vision-cache';
+import { probeLandlock, type LandlockStatus } from '../../system/landlock';
 
 interface ITool {
   name: string;
@@ -110,6 +112,49 @@ interface ShellExecutionResult {
   timedOut: boolean;
   duration: number;
   warning?: string;
+  confinement: ShellConfinement;
+}
+
+// What the command was actually confined by. `mode: 'none'` is a real warning:
+// the command ran with the gateway's full filesystem rights.
+export interface ShellConfinement {
+  mode: 'landlock' | 'none';
+  abi?: number;
+  reason?: string;
+}
+
+const JAIL_STATUS_PREFIX = '[podlet-jail] ';
+
+// Landlock cannot be applied in-process: it is per-process and irreversible,
+// so the gateway would jail itself. The command therefore runs under a
+// throwaway launcher that confines itself and then execs the command.
+const JAIL_LAUNCHER = join(import.meta.dir, '..', '..', 'system', 'jail_launcher.ts');
+
+function confinementNote(confinement: ShellConfinement): string | undefined {
+  if (confinement.mode === 'landlock') return undefined;
+  return `CONFINEMENT INACTIVE — this command ran WITHOUT filesystem write restrictions (${confinement.reason ?? 'unknown reason'}). It could write anywhere on the host, not just artifacts/. Treat any files it reported writing as untrusted and prefer artifacts/.`;
+}
+
+/** Split the launcher's status line out of the captured stderr. */
+function extractConfinement(stderr: string, fallback: ShellConfinement): { stderr: string; confinement: ShellConfinement } {
+  const lines = stderr.split('\n');
+  let confinement = fallback;
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (!line.startsWith(JAIL_STATUS_PREFIX)) {
+      kept.push(line);
+      continue;
+    }
+    try {
+      const status = JSON.parse(line.slice(JAIL_STATUS_PREFIX.length)) as LandlockStatus;
+      confinement = status.applied
+        ? { mode: 'landlock', abi: status.abi }
+        : { mode: 'none', reason: status.message };
+    } catch {
+      confinement = { mode: 'none', reason: 'unreadable jail status' };
+    }
+  }
+  return { stderr: kept.join('\n'), confinement };
 }
 
 // The run root's cwd holds exactly these children. Anything else that appears
@@ -144,6 +189,7 @@ class ShellTool implements ITool {
         '- Shell output may leak real filesystem paths — always continue using relative paths in follow-up tool calls',
         '- Only workspace/, artifacts/ and skills/ are visible to the other tools. A bare `git clone <url>` creates a directory in the run root that NO tool can read — clone into artifacts/ instead (e.g. `git clone <url> artifacts/<name>`, or pass working_directory: "artifacts").',
         '- Anything created outside those three directories is invisible and does not appear in the file tree.',
+        '- Writes are confined to artifacts/ (plus a per-run scratch dir). Writes anywhere else fail with EACCES.',
         '',
         'NOT FOR: long-running servers, interactive commands (vim/ssh), watch modes, background processes.',
         'Timeout: default 30s, max 300s.',
@@ -179,6 +225,13 @@ class ShellTool implements ITool {
     const startTime = Date.now();
     let timedOut = false;
 
+    // Advisory only: tells us what to expect from the launcher, and whether
+    // spawning it is even worthwhile.
+    const probe = probeLandlock();
+    const expected: ShellConfinement = probe.applied
+      ? { mode: 'landlock', abi: probe.abi }
+      : { mode: 'none', reason: probe.message };
+
     try {
       const runRoot = this.vfs?.runRoot;
       if (!runRoot) throw new Error('VirtualFileSystem not initialized');
@@ -187,26 +240,71 @@ class ShellTool implements ITool {
         ? resolveWithin(runRoot, working_directory)
         : runRoot;
 
+      // Jail-local scratch space. Created here too, not only in
+      // ensureRunRoot(), because tests and older run dirs predate these dirs
+      // and a missing TMPDIR target breaks every tool that needs a temp file.
+      const jailTmp = join(runRoot, '.tmp');
+      const jailCache = join(runRoot, '.cache');
+      await mkdir(jailTmp, { recursive: true, mode: 0o700 });
+      await mkdir(jailCache, { recursive: true, mode: 0o700 });
+
       const before = await listRunRootEntries(runRoot);
 
-      const proc = Bun.spawn(['bash', '-c', command], {
+      // artifacts/ plus the two hidden scratch dirs are writable; workspace/ and
+      // skills/ stay read-only input. The device files get WRITE_FILE only.
+      const jailSpec = JSON.stringify({
+        writableDirs: [join(runRoot, 'artifacts'), jailTmp, jailCache],
+        writableFiles: ['/dev/null', '/dev/tty', '/dev/stdout', '/dev/stderr'],
+      });
+
+      const jailable = probe.applied;
+      const spawnArgv = jailable
+        ? [process.execPath, JAIL_LAUNCHER, jailSpec, '--', 'bash', '-c', command]
+        : ['bash', '-c', command];
+      const proc = Bun.spawn(spawnArgv, {
         cwd,
         stdout: 'pipe',
         stderr: 'pipe',
         env: {
+          // Everything else is passed through unchanged — several tools need the
+          // real environment (API keys, tokens, locale) to work at all.
           ...process.env,
           PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
           DEBIAN_FRONTEND: 'noninteractive',
+
+          // Redirect every temp and cache location the common toolchains use
+          // into the two jail-local dirs, which are inside the writable set.
+          TMPDIR: jailTmp,
+          TMP: jailTmp,
+          TEMP: jailTmp,
+          XDG_CACHE_HOME: jailCache,
+          BUN_TMPDIR: jailTmp,
+          BUN_INSTALL_CACHE_DIR: join(jailCache, 'bun'),
+          npm_config_cache: join(jailCache, 'npm'),
+          UV_CACHE_DIR: join(jailCache, 'uv'),
+          // uv writes tool environments (and their .tmp dirs) outside
+          // UV_CACHE_DIR; without this, `uvx` still dies on ~/.local/share/uv.
+          UV_TOOL_DIR: join(jailCache, 'uv', 'tools'),
+          PIP_CACHE_DIR: join(jailCache, 'pip'),
+
+          // HOME is deliberately NOT redirected. Changing it breaks git config,
+          // ssh keys and credential helpers, and several tools ignore the
+          // cache variables above and write to HOME anyway. HOME is outside the
+          // jail's writable set, so those writes are DENIED — that is intended.
         },
       });
 
       const killTimer = setTimeout(() => { timedOut = true; proc.kill(); }, timeout * 1000);
 
-      const [stdout, stderr, exitCode] = await Promise.all([
+      const [stdout, rawStderr, exitCode] = await Promise.all([
         new Response(proc.stdout).text().catch(() => ''),
         new Response(proc.stderr).text().catch(() => ''),
         proc.exited,
       ]);
+
+      const { stderr, confinement } = jailable
+        ? extractConfinement(rawStderr, expected)
+        : { stderr: rawStderr, confinement: expected };
 
       clearTimeout(killTimer);
       const duration = Date.now() - startTime;
@@ -228,6 +326,7 @@ class ShellTool implements ITool {
           timedOut: true,
           duration,
           ...(warning ? { warning } : {}),
+          confinement,
         };
       }
 
@@ -239,15 +338,29 @@ class ShellTool implements ITool {
         timedOut: false,
         duration,
         ...(warning ? { warning } : {}),
+        confinement,
       };
     } catch (error) {
       return {
         success: false, stdout: '',
         stderr: error instanceof Error ? error.message : String(error),
         exitCode: null, timedOut, duration: Date.now() - startTime,
+        confinement: expected,
       };
     }
   }
+}
+
+// The model reads the tool result, so an inactive confinement has to be spelled
+// out in the text — a JSON field alone is too easy to overlook.
+function withConfinementNote(result: ShellExecutionResult): ShellExecutionResult {
+  const note = confinementNote(result.confinement);
+  if (!note) return result;
+  return {
+    ...result,
+    stderr: result.stderr ? `${result.stderr}\n\n[${note}]` : `[${note}]`,
+    warning: result.warning ? `${result.warning} ${note}` : note,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -683,7 +796,7 @@ export class CoreToolsManager {
       // ShellTool itself resolves `working_directory` against the run root and
       // defaults to it, so arguments are forwarded untouched. Only the output
       // needs sanitising, because commands like `pwd` print real paths.
-      const result = await tool.execute(args) as ShellExecutionResult;
+      const result = withConfinementNote(await tool.execute(args) as ShellExecutionResult);
 
       // Sanitize stdout and stderr — commands like `pwd` or `ls -la` will
       // print real filesystem paths that must not reach the model.
@@ -722,6 +835,7 @@ export class CoreToolsManager {
       content: JSON.stringify({
         success: false, stdout: '', stderr,
         exitCode: null, timedOut: false, duration: 0,
+        confinement: { mode: 'none', reason: 'VirtualFileSystem not initialized' },
       }),
     };
   }
