@@ -221,7 +221,19 @@ export class AgentChatLoop {
 
       this.context.frame.history.push(terminalMessage);
 
-      if (terminalFinishReason === "tool_calls") {
+      const hasUnansweredToolCalls = isAssistantWithToolCalls(terminalMessage);
+
+      if (hasUnansweredToolCalls && terminalFinishReason !== "tool_calls") {
+        // Provider contradiction: it claims the turn is over but the message
+        // carries tool calls. Completing here would persist an assistant message
+        // with unanswered tool_calls and every later request in this conversation
+        // would fail with AI_MissingToolResultsError.
+        console.warn(
+          `[chat-loop] finish_reason was "${terminalFinishReason}" but the assistant message carries tool calls; executing them`
+        );
+      }
+
+      if (terminalFinishReason === "tool_calls" || hasUnansweredToolCalls) {
         this.transitionTo(AgentState.EXECUTING_TOOLS)
       } else {
         this.transitionTo(AgentState.COMPLETED)

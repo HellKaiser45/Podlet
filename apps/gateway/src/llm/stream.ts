@@ -159,6 +159,10 @@ export async function* runLlmStream(
   let toolCallCounter = 0;
   const indexById = new Map<string, number>();
   const idsWithDeltas = new Set<string>();
+  // Set as soon as any tool-call part arrives. Some OpenAI-compatible gateways
+  // emit tool calls together with `finish_reason: "stop"`, and chat-loop
+  // decides whether to execute tools from the terminal reason alone.
+  let sawToolCall = false;
 
   // Anthropic streams a thinking block as text deltas plus one empty-text delta
   // carrying the signature in providerMetadata (and redacted blocks as
@@ -208,6 +212,7 @@ export async function* runLlmStream(
         }
 
         case 'tool-call': {
+          sawToolCall = true;
           // A provider that streams only the final tool-call (no input deltas)
           // leaves MessageAccumulator with empty arguments. Synthesize one delta
           // carrying the full JSON so the accumulator sees complete arguments.
@@ -247,12 +252,24 @@ export async function* runLlmStream(
           // 'tool_calls'). An absent raw reason therefore means the call did
           // NOT finish, and labelling it 'finish' would report a truncated
           // stream as a success.
+          // ONE effective reason for both the usage record and the terminal
+          // chunk, so the two can never disagree about what the call ended
+          // with. Overrides only a literal 'stop' that arrived next to tool
+          // calls: 'length' / 'content-filter' mean truncated or blocked and
+          // must still fail loudly in chat-loop's `default` branch.
+          let effective: FinishReason = part.finishReason;
           if (part.rawFinishReason === undefined) {
             report('incomplete', 'incomplete', undefined);
           } else {
-            report('finish', mapFinishReason(part.finishReason), part.totalUsage);
+            if (sawToolCall && part.finishReason === 'stop') {
+              effective = 'tool-calls';
+              console.warn(
+                '[llm] provider reported finish_reason="stop" together with tool calls; normalizing to tool_calls so the loop executes them',
+              );
+            }
+            report('finish', mapFinishReason(effective), part.totalUsage);
           }
-          yield finishChunk(part.finishReason);
+          yield finishChunk(effective);
           break;
         }
 

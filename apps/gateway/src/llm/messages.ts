@@ -343,7 +343,19 @@ function contentToText(content: unknown): string {
       )
       .join('');
   }
-  return '';
+  // Legitimately empty: a missing or null tool result has nothing to say.
+  if (content === null || content === undefined) return '';
+  // Anything else (object, number, boolean) is real data. Returning '' here would
+  // hand the model an empty tool result while the UI still shows the payload
+  // (the emit path JSON.stringify's it), so the model would retry the same call
+  // forever with no visible failure. Serialize it instead and say so once, on
+  // the line, so the mismatch cannot pass unnoticed. `JSON.stringify` yields
+  // `undefined` for functions and symbols, hence the String() fallback.
+  console.warn(
+    '[llm] non-string content serialized as JSON for the model; the UI may show a different representation',
+  );
+  const serialized = JSON.stringify(content);
+  return serialized === undefined ? String(content) : serialized;
 }
 
 function contentToUserContent(content: unknown): UserContent {

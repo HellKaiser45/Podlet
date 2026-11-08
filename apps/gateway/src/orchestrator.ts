@@ -42,6 +42,23 @@ export function projectHistoryForPersistence(history: LiteLLMMessage[]): LiteLLM
     .map(m => (m.role === 'assistant' ? stripReasoning(m) : m));
 }
 
+/**
+ * The parent agent reads this as the subagent's answer, so plain text must
+ * arrive verbatim: `JSON.stringify` on a string re-encodes it as a quoted,
+ * escaped literal. Non-string payloads are serialized as JSON.
+ */
+function toolContentFrom(value: unknown, agentId: string): string {
+  if (typeof value === 'string') {
+    return value.length > 0
+      ? value
+      : JSON.stringify({ error: `subagent '${agentId}' returned an empty response` });
+  }
+  if (value === null || value === undefined) {
+    return JSON.stringify({ error: `subagent '${agentId}' returned no content` });
+  }
+  return JSON.stringify(value);
+}
+
 
 function detectnewleaf(input: AgentStackFrame): boolean {
   if ((!input.pending_approvals || input.pending_approvals.length === 0) && input.status === "suspended") {
@@ -210,7 +227,7 @@ export class AgentOrchestrator {
       const tool_msg: LiteLLMMessage = {
         role: "tool",
         tool_call_id: ol.answering_tool_call_id,
-        content: JSON.stringify(ol.history[ol.history.length - 1].content),
+        content: toolContentFrom(ol.history[ol.history.length - 1].content, ol.agent_id),
       };
 
       if (!parent_frame) throw new Error('parent frame not found in db');

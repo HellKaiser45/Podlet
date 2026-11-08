@@ -3,6 +3,22 @@ import { AgentChatLoop } from './../agent-loop/chat-loop'
 import { AgentStackFrame, AgentToolSuspended, createContext, RunAgentInput } from '../types'
 import AppContainer from '../runtime';
 
+/**
+ * The parent agent reads this as the subagent's answer, so plain text must
+ * arrive verbatim: `JSON.stringify` on a string re-encodes it as a quoted,
+ * escaped literal. Non-string payloads are serialized as JSON.
+ */
+function toolContentFrom(value: unknown, agentId: string): string {
+  if (typeof value === 'string') {
+    return value.length > 0
+      ? value
+      : JSON.stringify({ error: `subagent '${agentId}' returned an empty response` });
+  }
+  if (value === null || value === undefined) {
+    return JSON.stringify({ error: `subagent '${agentId}' returned no content` });
+  }
+  return JSON.stringify(value);
+}
 
 export class AgentToolManager {
   private container: AppContainer
@@ -99,7 +115,7 @@ export class AgentToolManager {
         return {
           role: "tool",
           tool_call_id: toolCallId,
-          content: JSON.stringify(result.history[result.history.length - 1].content),
+          content: toolContentFrom(result.history[result.history.length - 1].content, agentId),
         }
       } else if (result.status === "suspended") {
         throw new AgentToolSuspended(childFrame.frame_id, childFrame.agent_id)
