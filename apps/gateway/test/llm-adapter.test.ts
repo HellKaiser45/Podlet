@@ -96,7 +96,7 @@ describe('toModelMessages', () => {
     expect(() => toModelMessages(history)).toThrow(/orphan/);
   });
 
-  test('maps image_url content to an image part', () => {
+  test('maps image_url content to a file part', () => {
     const history = [
       {
         role: 'user',
@@ -112,7 +112,29 @@ describe('toModelMessages', () => {
       role: 'user',
       content: [
         { type: 'text', text: 'look' },
-        { type: 'image', image: 'https://example.com/a.png' },
+        { type: 'file', mediaType: 'image', data: 'https://example.com/a.png' },
+      ],
+    });
+  });
+
+  test('maps a data: URI image_url content to a file part carrying its MIME type', () => {
+    const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+    const history = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image_url', image_url: { url: dataUri } },
+        ],
+      },
+    ] as any;
+
+    const messages = toModelMessages(history);
+    expect(messages[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look' },
+        { type: 'file', mediaType: 'image/png', data: dataUri },
       ],
     });
   });

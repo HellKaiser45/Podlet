@@ -115,7 +115,7 @@ function summarise(messages: ModelMessage[]): string[] {
     const parts = (content as Array<Record<string, unknown>>).map((part) => {
       const type = String(part.type);
       if (type === 'text') return `text(${String(part.text).split('\n')[0]!.slice(0, 80)})`;
-      if (type === 'image') return `image(${String(part.image).slice(0, 24)}…)`;
+      if (type === 'file') return `file(${String(part.mediaType)} ${String(part.data).slice(0, 24)}…)`;
       if (type === 'tool-result') return `tool-result(${String(part.toolCallId)})`;
       if (type === 'tool-call') return `tool-call(${String(part.toolCallId)})`;
       return type;
@@ -159,9 +159,10 @@ describe('hydration ordering with a mixed tool run', () => {
     // The image message comes after that tool block, text part first.
     const imageMessage = modelMessages[2]!;
     const content = userContent(imageMessage);
-    expect(content.map((part) => part.type)).toEqual(['text', 'image']);
+    expect(content.map((part) => part.type)).toEqual(['text', 'file']);
     expect(String(content[0]!.text).startsWith('Images from see_image call call_see:')).toBe(true);
-    expect(String(content[1]!.image).startsWith('data:image/png;base64,')).toBe(true);
+    expect(content[1]!.mediaType).toBe('image/png');
+    expect(String(content[1]!.data).startsWith('data:image/png;base64,')).toBe(true);
 
     // The caller's history is not mutated.
     expect(history.map((m) => m.role)).toEqual(['assistant', 'tool', 'tool']);

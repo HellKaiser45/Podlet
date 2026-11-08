@@ -1,7 +1,7 @@
 import type {
   AssistantContent,
   AssistantModelMessage,
-  ImagePart,
+  FilePart,
   JSONSchema7,
   ModelMessage,
   SystemModelMessage,
@@ -174,7 +174,8 @@ function assertBreakpointBudget(messages: ModelMessage[]): void {
  *    from the `tool_call_id` in the nearest preceding assistant `tool_calls`;
  *  - assistant `reasoning_content` / `thinking_blocks` are preserved as
  *    reasoning parts (the Anthropic thinking signature rides in providerOptions);
- *  - image_url parts become `image` parts carrying the URL/data-URI string.
+ *  - image_url parts become `file` parts with mediaType carrying the URL/data-URI
+ *    string.
  */
 export function toModelMessages(history: LiteLLMMessage[]): ModelMessage[] {
   const out: ModelMessage[] = [];
@@ -350,9 +351,9 @@ function contentToUserContent(content: unknown): UserContent {
   return contentToTextParts(content);
 }
 
-function contentToTextParts(content: unknown): Array<TextPart | ImagePart> {
+function contentToTextParts(content: unknown): Array<TextPart | FilePart> {
   if (!Array.isArray(content)) return [];
-  const parts: Array<TextPart | ImagePart> = [];
+  const parts: Array<TextPart | FilePart> = [];
   for (const raw of content) {
     if (!raw || typeof raw !== 'object') continue;
     const part = raw as {
@@ -364,8 +365,27 @@ function contentToTextParts(content: unknown): Array<TextPart | ImagePart> {
       parts.push({ type: 'text', text: part.text });
     } else if (part.type === 'image_url' && part.image_url?.url) {
       // AI SDK accepts a URL string or a data URI directly.
-      parts.push({ type: 'image', image: part.image_url.url });
+      parts.push({
+        type: 'file',
+        mediaType: mediaTypeFromUrl(part.image_url.url),
+        data: part.image_url.url,
+      });
     }
   }
   return parts;
+}
+
+/**
+ * The `mediaType` a FilePart must carry. A `data:` URI states it (`data:<mime>;base64,…`);
+ * any other URL has no declared type, and the AI SDK only wants the top-level
+ * segment in that case ("image"), never a guessed subtype.
+ */
+function mediaTypeFromUrl(url: string): string {
+  if (url.startsWith('data:')) {
+    const header = url.slice(5, url.indexOf(','));
+    const semi = header.indexOf(';');
+    const mime = (semi === -1 ? header : header.slice(0, semi)).trim();
+    if (mime.length > 0) return mime;
+  }
+  return 'image';
 }

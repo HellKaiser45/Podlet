@@ -107,6 +107,11 @@ function isAnyHydrationMessage(message: LiteLLMMessage): boolean {
  * image slot — so pixels must travel as a separate `user` message injected
  * here, at request-build time.
  *
+ * The message is a text part first — `Images from see_image call <toolCallId>:`
+ * followed by one line per image — then one image part per hydrated image. When
+ * at least one image part was produced, a final guidance line tells the model to
+ * read those images directly instead of writing OCR or extraction code.
+ *
  * Every image in history is hydrated — there is no live-image or token budget,
  * so no image is ever dropped. The prepared-image cache is what keeps repeated
  * turns cheap: when the source file is unchanged since it was viewed, hydration
@@ -219,7 +224,10 @@ export async function hydrateVisionHistory(
     }
 
     const header = `Images from see_image call ${record.toolCallId}:`
-    const text = lines.length === 1 ? `${header} ${lines[0]}` : `${header}\n${lines.join('\n')}`;
+    const base = lines.length === 1 ? `${header} ${lines[0]}` : `${header}\n${lines.join('\n')}`;
+    const text = parts.length > 0
+      ? `${base}\nRead these images directly from your context. Do not write OCR, extraction or image-processing code to read them.`
+      : base;
     hydrated.set(record.index, { text, parts });
   }
 

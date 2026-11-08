@@ -444,11 +444,14 @@ class SeeImageTool implements ITool {
     function: {
       name: 'see_image',
       description: [
-        'ALWAYS use this tool to look at an image (.png .jpg .jpeg .webp .gif) in workspace/ or artifacts/.',
+        'Use this tool to look at an image (.png .jpg .jpeg .webp .gif) in workspace/ or artifacts/ that is NOT already in the conversation.',
         'NEVER use read_file or execute_shell for images — read_file refuses binary files and shell output is text.',
         '',
         'The images are attached to the conversation; you will see them after this call returns.',
         'Call again with `crop` to zoom into a region instead of re-reading the whole image.',
+        '',
+        'Do NOT call this on an image the user attached to the conversation — you can already see it.',
+        'Once this returns, the image is in your context: read it directly. Do not write OCR or extraction code to read it.',
       ].join('\n'),
       parameters: {
         type: 'object',
@@ -492,7 +495,7 @@ class SeeImageTool implements ITool {
 
   async execute(
     args: Record<string, unknown>
-  ): Promise<{ ok: boolean; images: SeeImageReceipt[]; errors: string[] }> {
+  ): Promise<{ ok: boolean; images: SeeImageReceipt[]; errors: string[]; note?: string }> {
     const paths = args.paths as string[] | undefined;
     if (!paths || paths.length === 0) throw new Error('Missing required argument: paths');
     if (!this.vfs) return { ok: false, images: [], errors: ['VirtualFileSystem not initialized'] };
@@ -573,7 +576,14 @@ class SeeImageTool implements ITool {
       })
     );
 
-    return { ok: images.length > 0, images, errors };
+    return {
+      ok: images.length > 0,
+      images,
+      errors,
+      ...(images.length > 0
+        ? { note: 'These images are now in your context. Read them directly — do not write OCR or extraction code to read them.' }
+        : {}),
+    };
   }
 }
 
