@@ -78,7 +78,7 @@ function realpathNearest(target: string): string {
  */
 export function resolveWithin(root: string, rel: string): string {
   if (hasParentSegment(rel)) {
-    throw new PathEscape(`Path traversal (\.\.) is not allowed: "${rel}"`);
+    throw new PathEscape(`Path traversal (..) is not allowed: "${rel}"`);
   }
 
   const absRoot = resolve(root);
@@ -143,7 +143,7 @@ function splitVirtual(rel: string): { root: VirtualRootName; rest: string } {
   }
 
   if (hasParentSegment(normalized)) {
-    throw new PathEscape(`Path traversal (\.\.) is not allowed: "${rel}"`);
+    throw new PathEscape(`Path traversal (..) is not allowed: "${rel}"`);
   }
 
   const slash = normalized.indexOf("/");
@@ -217,6 +217,14 @@ export async function ensureRunRoot(
   await mkdir(workspaceRoot, { recursive: true });
   await mkdir(join(runRoot, "artifacts"), { recursive: true });
   await mkdir(join(runRoot, "skills"), { recursive: true });
+
+  // Jail-local scratch space for the sandboxed shell, which runs under a
+  // Landlock write-jail: TMPDIR and XDG_CACHE_HOME are redirected into these
+  // two directories so tools that need temp files and package caches keep
+  // working. They are NOT virtual roots — they are not reachable through the
+  // VFS path language and must not appear in getContextTree() or listFiles().
+  await mkdir(join(runRoot, ".tmp"), { recursive: true, mode: 0o700 });
+  await mkdir(join(runRoot, ".cache"), { recursive: true, mode: 0o700 });
 
   for (const name of allowedSkills) {
     const target = join(podletDir, "skills", name);
@@ -688,6 +696,7 @@ ${skillsRule}
 - **artifacts/** — Your working output space. Write all produced files here.
 ${skillsRootBullet}
 - A repository or dataset you clone with execute_shell must land under \`artifacts/\` (e.g. \`git clone <url> artifacts/<name>\`). Anything created outside \`workspace/\`, \`artifacts/\` and \`skills/\` is invisible to read_file and does not appear in the tree below.
+- execute_shell writes are confined to \`artifacts/\` (plus a per-run scratch directory). Writing anywhere else fails with EACCES.
 - Images are attached to the conversation after a see_image call — the receipt you get back is metadata only, so do not try to read the pixels back out of it.
 - **If you can see an image — whether the user attached it or see_image delivered it — read it directly from your context. NEVER write OCR, extraction or image-processing code to read an image you have been given.** execute_shell and Python are for transforming files, not for "reading" them.
 
