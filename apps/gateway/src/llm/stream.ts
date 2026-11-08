@@ -144,7 +144,16 @@ export async function* runLlmStream(
 
   // NOT awaited here: some providers only settle `warnings` once the response
   // stream has been pulled, so awaiting first can deadlock.
-  const warningsPromise = result.warnings;
+  //
+  // It is also made non-throwing here: it is only awaited on the success path,
+  // so a rejection (the SDK rejects it from an unconsumed teardown promise)
+  // would be unobserved and become an unhandled rejection -- fatal under Bun.
+  // Warnings are diagnostics; a call that already reported its outcome must
+  // not be able to take the process down over them.
+  const warningsPromise = Promise.resolve(result.warnings).then(
+    (warnings) => warnings,
+    () => undefined,
+  );
 
   // Per-call, arrival-order counter for legacy tool_call indices.
   let toolCallCounter = 0;

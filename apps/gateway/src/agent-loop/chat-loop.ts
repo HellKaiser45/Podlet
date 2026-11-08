@@ -306,19 +306,48 @@ export class AgentChatLoop {
         }
 
         tool_promises.push(
-          toolPromise.then((result) => {
-            emit({
-              AgentId: this.agentDef.agentId,
-              type: EventType.TOOL_CALL_RESULT,
-              messageId: crypto.randomUUID(),
-              toolCallId: call.id,
-              role: "tool",
-              content: typeof result.content === "string"
-                ? result.content
-                : JSON.stringify(result.content),
-            });
-            return result;
-          })
+          toolPromise.then(
+            (result) => {
+              emit({
+                AgentId: this.agentDef.agentId,
+                type: EventType.TOOL_CALL_RESULT,
+                messageId: crypto.randomUUID(),
+                toolCallId: call.id,
+                role: "tool",
+                content: typeof result.content === "string"
+                  ? result.content
+                  : JSON.stringify(result.content),
+              });
+              return result;
+            },
+            // A rejection of a normal tool must become a tool result exactly
+            // like the synchronous catch above: the assistant message that
+            // requested this call is already in history, so a missing
+            // `role:'tool'` entry makes the next LLM call die with
+            // AI_MissingToolResultsError. Only a suspension is rethrown -- the
+            // `Promise.allSettled` below reads it to enter AWAITING_APPROVAL.
+            (reason: unknown) => {
+              if (reason instanceof AgentToolSuspended) throw reason;
+
+              const error = reason instanceof Error ? reason : new Error(String(reason));
+              const errorContent = JSON.stringify({ error: `Failed to execute: ${error.message}` });
+
+              emit({
+                AgentId: this.agentDef.agentId,
+                type: EventType.TOOL_CALL_RESULT,
+                messageId: crypto.randomUUID(),
+                toolCallId: call.id,
+                role: "tool",
+                content: errorContent,
+              });
+
+              return {
+                role: "tool",
+                tool_call_id: call.id,
+                content: errorContent,
+              };
+            },
+          )
         );
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));

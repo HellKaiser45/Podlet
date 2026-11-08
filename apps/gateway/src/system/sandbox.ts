@@ -5,6 +5,7 @@ import {
 } from "node:fs/promises";
 import type { FileResponse, FileUpload } from "../types";
 import SkillsManager from "./skills";
+import { prepareImage } from "./vision";
 import { ChatCompletionContentPart, ChatCompletionUserMessageParam } from "openai/resources.js";
 import { createCanvas } from "@napi-rs/canvas";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -819,12 +820,28 @@ ${tree}
       }
 
       if (file.type.startsWith("image/")) {
-        parts.push({
-          type: "image_url",
-          image_url: {
-            url: `data:${file.type};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`,
-          },
-        });
+        // Same preparation path as see_image: downscale, normalise the format
+        // and sniff the real MIME. Raw upload bytes are not provider-safe.
+        const prepared = await prepareImage(
+          new Uint8Array(await file.arrayBuffer()),
+          file.type,
+          { maxEdge: 1568 },
+        );
+
+        if (prepared.ok === false) {
+          // One bad attachment must not fail the whole turn.
+          parts.push({
+            type: "text",
+            text: `${vpath}: attachment could not be prepared (${prepared.reason})`,
+          });
+        } else {
+          parts.push({
+            type: "image_url",
+            image_url: {
+              url: `data:${prepared.mime};base64,${Buffer.from(prepared.bytes).toString("base64")}`,
+            },
+          });
+        }
       } else {
         parts.push({ type: "text", text: await file.text() });
       }

@@ -79,6 +79,23 @@ function isHydrationMessage(message: LiteLLMMessage, toolCallId: string): boolea
   );
 }
 
+/**
+ * True when `message` is a hydration message for ANY tool call. Used to
+ * recognise one that an older pass left inside a run of tool messages, so it
+ * can be re-placed after the run instead of left in place.
+ */
+function isAnyHydrationMessage(message: LiteLLMMessage): boolean {
+  if (message.role !== 'user') return false;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content) || content.length === 0) return false;
+  const first = content[0] as { type?: unknown; text?: unknown };
+  return (
+    first?.type === 'text' &&
+    typeof first.text === 'string' &&
+    first.text.startsWith('Images from see_image call ')
+  );
+}
+
 // ---------------------------------------------------------------------------
 // hydrateVisionHistory
 // ---------------------------------------------------------------------------
@@ -207,33 +224,57 @@ export async function hydrateVisionHistory(
   }
 
   // 4. Assemble the output array.
+  //
+  // A hydration message is a `user` message, so it may never sit between two
+  // tool results: the AI SDK prompt converter rejects the whole request then,
+  // with "Tool result is missing for tool call <id>", on every protocol. Each
+  // run of consecutive `tool` messages therefore stays contiguous, and every
+  // hydration message belonging to a run is appended AFTER the run — one per
+  // `see_image` result, in their original relative order.
   const result: LiteLLMMessage[] = [];
-  const skip = new Set<number>();
-  for (let i = 0; i < history.length; i++) {
-    if (skip.has(i)) continue;
-
-    const message = history[i];
-    const record = recordByIndex.get(i);
-    if (!record) {
-      result.push(message);
+  let i = 0;
+  while (i < history.length) {
+    if (history[i]!.role !== 'tool') {
+      result.push(history[i]!);
+      i++;
       continue;
     }
 
-    // Every record is hydrated above, so the entry always exists here.
-    const hydratedEntry = hydrated.get(i)!;
+    // A run is the tool messages plus any hydration message interleaved with
+    // them — where older passes (and the pre-fix code) left them.
+    const toolIndices: number[] = [];
+    const strayHydration: LiteLLMMessage[] = [];
+    let end = i;
+    for (; end < history.length; end++) {
+      const current = history[end]!;
+      if (current.role === 'tool') toolIndices.push(end);
+      else if (isAnyHydrationMessage(current)) strayHydration.push(current);
+      else break;
+    }
 
-    // Tool message is unchanged; the pixels travel in the user message that
-    // follows it immediately.
-    result.push(message);
-    const next = history[i + 1];
-    if (next && isHydrationMessage(next, record.toolCallId)) {
-      // Already hydrated by a previous pass — reuse it verbatim so a second
-      // call is idempotent instead of duplicating the image message.
-      result.push(next);
-      skip.add(i + 1);
-    } else {
+    // Every tool result first, so the run stays contiguous.
+    for (const index of toolIndices) result.push(history[index]!);
+
+    // Then the pixels, in receipt order.
+    for (const index of toolIndices) {
+      const record = recordByIndex.get(index);
+      if (!record) continue;
+
+      const match = strayHydration.findIndex((m) => isHydrationMessage(m, record.toolCallId));
+      if (match !== -1) {
+        // Already hydrated by a previous pass — reuse it verbatim so a second
+        // call is idempotent instead of duplicating the image message.
+        result.push(strayHydration[match]!);
+        strayHydration.splice(match, 1);
+        continue;
+      }
+
+      // Every record is hydrated above, so the entry always exists here.
+      const hydratedEntry = hydrated.get(index)!;
       result.push(makeUserMessage(hydratedEntry.text, hydratedEntry.parts));
     }
+
+    i = end;
   }
 
   return result;
